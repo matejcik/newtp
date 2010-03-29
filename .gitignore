@@ -1,0 +1,5 @@
+*.swp
+*.o
+server
+*/build
+*/dist

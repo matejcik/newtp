@@ -1,0 +1,41 @@
+﻿bakalářská práce – specifikace
+
+1. cíl práce
+
+Cílem práce je navrhnout jednoduchý a bezpečný protokol pro přenos souborů a adresářových struktur mezi dvěma počítači. Dále tento protokol implementovat, a to jako referenční server pro UNIXové systémy; klientské knihovny v jazycích C, Java a Python, případně dalších; command-line klient (zřejmě v jazyce C) pro UNIXové systémy; multiplatformní GUI klient pomocí Java/Swing; uživatelský souborový systém FUSE a případně další.
+
+Protokol má umožnit jednomu počítači (serveru) zpřístupnit část svého souborového systému jiným počítačům (klientům). Základní využití je dvojí:
+a) "Desktopové sdílení" adresářů mezi stanicemi v lokální síti. Neprivilegovaný uživatel může označit některé jemu dostupné adresáře ke zveřejnění, a tyto se automaticky zviditelní ostatním uživatelům prostřednictvím MDNS service discovery.
+b) Správa dat na vzdáleném serveru v Internetu, typicky adresáře s WWW stránkami na serveru hostingu. V tomto ohledu by nový protokol měl být použitelný namísto nejrozšířenějšího protokolu FTP.
+
+2. požadavky na protokol
+
+Přenos souborů vyžaduje spojovaný a spolehlivý přenos, protokol tedy bude fungovat nad TCP/IP.
+
+Příkazy protokolu budou odpovídat operacím nad soubory a adresáři. Jednoduše je lze rozdělit na dvě skupiny:
+a) práce s adresářovou strukturou: výpis obsahu adresáře (list), založení adresáře (create), odstranění souboru nebo adresáře (remove) (pozn.: je potřeba odlišit rm a rmdir?), změna atributů souboru/adresáře (setattr), přejmenování a přesun (move)
+b) práce se soubory: zápis (write), čtení (read), zkrácení (truncate)
+Odpovědí serveru na každý příkaz bude buď potvrzení o provedení (a případně datový výstup), nebo oznámení o chybě.
+
+Protokol by měl být zabezpečený proti odposlechu i zneužití. Veškerá komunikace musí probíhat šifrovaně (nejspíše pomocí SSL). Referenční server i klientské knihovny musí být naprogramované defenzivně. Protokol by měl být navržen dostatečně jednoduše, aby nenabízel příliš mnoho "volného prostoru" ke zneužití, a aby ani nevedl k implementacím náchylným na běžné chyby (např. přetečení zásobníku). Měl by být striktně definovaný a nedržet se filosofie "strict in what you send and tolerant in what you receive".
+
+Protokol by měl být navržen pro nízkou latenci. Žádná jednotlivá operace by neměla vyžadovat víc než jednu odpověď serveru. Nemělo by být nutné navazovat více než jedno TCP spojení, data se tedy budou přenášet in-line. Mělo by být snadné zotavit se ze ztráty spojení. Protokol tedy bude bezestavový a umožní přenášet soubory po částech. Tím pádem bude možné jednoduše číst např. náhledy souborů a metainformace z hlaviček (u formátů, které to umožňují), seekovat při online přehrávání videa a podobně. Stejný mechanismus umožní navázat přerušený přenos přesně v místě, kde skončil.
+
+Protokol by měl fungovat jak pro anonymní uživatele (pro scénář "desktopové sdílení"), tak pro uživatele identifikované jménem a heslem nebo klíčem (pro scénář "vzdálený server"). Autentizace tedy musí být nepovinná.
+
+3. požadavky na implementaci
+
+Referenční server musí být k dispozici pro alespoň jednu platformu (zřejmě UNIX-like) a musí být jednoduše použitelný neprivilegovaným uživatelem.
+Musí umožňovat zveřejnění jednoho nebo více adresářů v režimu pouze pro čtení nebo čtení/zápis.
+Musí umožnit spolupráci se službou MDNS a oznámení svojí existence v lokální síti.
+Běžící instance serveru by měla být dále ovladatelná a umožnit zveřejnění dalších nebo skrytí již zveřejněných adresářů.
+Měla by být k dispozici GUI integrace tohoto ovládání (zřejmě v Linuxovém prostředí KDE nebo GNOME).
+
+GUI klient musí být k dispozici pro nejrozšířenější desktopové platformy, tj. Windows, MacOS X a Linux. Musí umožnit nalezení lokálních serverů pomocí MDNS nebo připojení k serveru zadanému adresou a číslem portu. Musí umožnit grafické znázornění adresářové struktury na serveru a zpřístupnit všechny operace protokolu, zejména pak stažení (download) a nahrání (upload) souboru a navázání přerušeného přenosu.
+
+Klientské knihovny by měly být jednoduše použitelné jak pro "adresářové" (např. FUSE filesystém, plugin do nějakého souborového manažeru), tak pro "souborové" aplikace (např. textový editor s podporou editace vzdálených souborů, on-line přehrávač videa).
+Součástí práce by měly být patche pro některé populární aplikace a knihovny, např. prohlížeče Mozilla, knihovna cURL, gnome-vfs.
+
+4. nejasnosti
+měl bych psát RFC?
+jak nejlíp napsat, že bych to chtěl dát do co nejvíc programů, a přitom si nechat prostor na to "to nestihnout"?
