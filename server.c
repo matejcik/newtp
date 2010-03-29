@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <errno.h>
+#include <signal.h>
 
 #define MYPORT "39400"	/* the port users will be connecting to */
 #define BACKLOG 10	/* how many pending connections queue will hold */
@@ -37,6 +38,12 @@ void fork_client (int client)
 void at_exit ()
 {
 	close(sock_server);
+	fprintf(stderr, "closed server\n");
+}
+
+void sighandler (int signal)
+{
+	exit(0);
 }
 
 int main (void)
@@ -46,11 +53,12 @@ int main (void)
 	struct addrinfo hints, *res;
 	int yes = 1;
 
+	atexit(at_exit);
+	signal(SIGINT, sighandler);
+
 	/* !! don't forget your error checking for these calls !! */
 
 	/* first, load up address structs with getaddrinfo(): */
-	atexit(at_exit);
-
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_UNSPEC; /* use IPv4 or IPv6, whichever */
 	hints.ai_socktype = SOCK_STREAM;
