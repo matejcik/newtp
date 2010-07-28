@@ -1,7 +1,7 @@
 CFLAGS = -std=c99 -D_POSIX_C_SOURCE -O0 -g -Wall -pedantic
 CC = gcc
 
-OBJS = server.o work.o
+OBJS = server.o binsrv.o
 
 all: server
 

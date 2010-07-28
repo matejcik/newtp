@@ -19,13 +19,13 @@ struct cmd_payload {
 
 struct data_packet {
 	uint32_t len;
-	char[] data;
+	char *data;
 };
 
 struct reply_payload {
 	uint16_t	id;		// same as in command
 	uint8_t		status;
-	struct data_packet data;
+	uint32_t	datasize;
 };
 
 struct intro {

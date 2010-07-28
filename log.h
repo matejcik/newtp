@@ -11,6 +11,6 @@
 #define warnp(s, ...) log__base_p("WARN", s, __VA_ARGS__)
 
 #define log(s) log__base("", s)
-#define logp(s, ...), log__base_p("", s, __VA_ARGS__)
+#define logp(s, ...) log__base_p("", s, __VA_ARGS__)
 
 #endif

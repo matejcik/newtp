@@ -26,5 +26,9 @@
 #define STAT_OK 	0x01
 #define STAT_CONT	0x02
 #define STAT_ERROR	0x80
+#define STAT_NOTFOUND	0x81 // file under this handle doesn't exist
+#define STAT_EACCESS	0x82 // permission denied
+#define STAT_BADPATH	0x83 // specified path is invalid
+#define STAT_BADHANDLE	0x84 // invalid handle
 
 #endif
