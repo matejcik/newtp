@@ -1,8 +1,9 @@
 CFLAGS = -std=c99 -D_POSIX_C_SOURCE -O0 -g -Wall -pedantic
 CC = gcc
 
-SRVOBJS = server.o binsrv.o tools.o
-CLIOBJS = client.o tools.o
+COMMON = common.o struct_helpers.o tools.o
+SRVOBJS = server.o binsrv.o $(COMMON)
+CLIOBJS = client.o $(COMMON)
 
 OBJS = $(SRVOBJS) $(CLIOBJS)
 
