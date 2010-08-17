@@ -1,5 +1,7 @@
 *.swp
 *.o
+*.d
+struct_helpers.*
 server
 client
 */build

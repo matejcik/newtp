@@ -24,7 +24,7 @@ struct command {
 	uint16_t handle;	/* file resource handle */
 };
 
-struct data_packet {
+struct data_packet { /* this does not have an auto-generated helper */
 	uint32_t len;
 	char *data;
 };

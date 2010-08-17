@@ -9,11 +9,22 @@ OBJS = $(SRVOBJS) $(CLIOBJS)
 
 all: server client
 
+struct_helpers.c: make_struct_helpers.py
+	./make_struct_helpers.py
+
 server:	$(SRVOBJS)
 	$(CC) $(CFLAGS) $^ -o $@
 
 client: $(CLIOBJS)
 	$(CC) $(CFLAGS) $^ -o $@
 
+-include $(subst .o,.d,$(OBJS))
+
+%.d: %.c
+	$(CC) -M $(CPPFLAGS) $< > $@.$$$$;                  \
+	sed 's,\($*\)\.o[ :]*,\1.o $@ : ,g' < $@.$$$$ > $@; \
+	rm -f $@.$$$$
+
 clean:
-	rm server client $(OBJS)
+	rm -f $(OBJS) \
+	rm -f server client struct_helpers.c *.d

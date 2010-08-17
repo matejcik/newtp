@@ -77,28 +77,28 @@ void work (void)
 	whoami.handlelen = 4096;
 
 //	send_full (&whoami, sizeof(whoami));
-	send_intro(&whoami);
+	send_intro(sock_client, &whoami);
 
 	/* cmd loop */
 	while (1) {
 //		recv_full(&cmd, sizeof(cmd));
-		recv_command(&cmd);
+		recv_command(sock_client, &cmd);
 
 		switch (cmd.command) {
 			case CMD_NOOP:
 				log("ping");
-				send_reply_p(cmd.id, STAT_OK, 0);
+				send_reply_p(sock_client, cmd.id, STAT_OK, 0);
 				break;
 
 			case CMD_ASSIGN:
 				// read data
-				recv_data(&pkt);
+				recv_data(sock_client, &pkt);
 
 				reply = validate_assign_handle(cmd.handle, &pkt);
 				if (reply == STAT_OK) {
 					logp("assigning to handle %d, name '%s'", cmd.handle, handles[cmd.handle]);
 				}
-				send_reply_p(cmd.id, reply, 0);
+				send_reply_p(sock_client, cmd.id, reply, 0);
 				break;
 		}
 	}
