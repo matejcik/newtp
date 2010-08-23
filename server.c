@@ -9,7 +9,7 @@
 #include <errno.h>
 #include <signal.h>
 
-#define MYPORT "39400"	/* the port users will be connecting to */
+#define MYPORT "5438"	/* the port users will be connecting to */
 #define BACKLOG 10	/* how many pending connections queue will hold */
 
 int sock_server;
@@ -35,7 +35,7 @@ void fork_client (int client)
 	}
 }
 
-void at_exit ()
+static void at_exit ()
 {
 	close(sock_server);
 	fprintf(stderr, "closed server\n");
@@ -60,7 +60,7 @@ int main (void)
 
 	/* first, load up address structs with getaddrinfo(): */
 	memset(&hints, 0, sizeof(hints));
-	hints.ai_family = AF_UNSPEC; /* use IPv4 or IPv6, whichever */
+	hints.ai_family = AF_INET6; /* use IPv4 or IPv6, whichever */
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_flags = AI_PASSIVE; /* fill in my IP for me */
 

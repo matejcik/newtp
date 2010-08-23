@@ -23,6 +23,12 @@ void die ()
 	exit(1);
 }
 
+static void at_exit ()
+{
+	log("closed client connection");
+	close(sock_client);
+}
+
 struct intro whoami;
 
 #define MAXHANDLES 16
@@ -67,6 +73,7 @@ void work (void)
 	int reply;
 
 	log("connection received");
+	atexit(&at_exit);
 
 	// clear handles
 	for (int i = 0; i < MAXHANDLES; i++) handles[i] = 0;
@@ -77,28 +84,28 @@ void work (void)
 	whoami.handlelen = 4096;
 
 //	send_full (&whoami, sizeof(whoami));
-	send_intro(sock_client, &whoami);
+	SAFE(send_intro(sock_client, &whoami));
 
 	/* cmd loop */
 	while (1) {
 //		recv_full(&cmd, sizeof(cmd));
-		recv_command(sock_client, &cmd);
+		SAFE(recv_command(sock_client, &cmd));
 
 		switch (cmd.command) {
 			case CMD_NOOP:
 				log("ping");
-				send_reply_p(sock_client, cmd.id, STAT_OK, 0);
+				SAFE(send_reply_p(sock_client, cmd.id, STAT_OK, 0));
 				break;
 
 			case CMD_ASSIGN:
 				// read data
-				recv_data(sock_client, &pkt);
+				SAFE(recv_data(sock_client, &pkt));
 
 				reply = validate_assign_handle(cmd.handle, &pkt);
 				if (reply == STAT_OK) {
 					logp("assigning to handle %d, name '%s'", cmd.handle, handles[cmd.handle]);
 				}
-				send_reply_p(sock_client, cmd.id, reply, 0);
+				SAFE(send_reply_p(sock_client, cmd.id, reply, 0));
 				break;
 		}
 	}
