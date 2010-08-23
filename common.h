@@ -4,6 +4,9 @@
 #include <sys/types.h>
 #include "structs.h"
 
+uint64_t htonll (uint64_t);
+uint64_t ntohll (uint64_t);
+
 int send_full (int, void *, int);
 int recv_full (int, void *, int);
 

@@ -8,6 +8,28 @@
 #include "structs.h"
 #include "tools.h"
 
+/* endian-independent htonll - assumes 8bit char */
+uint64_t htonll (uint64_t hostlong)
+{
+	unsigned char buffer[8];
+	uint64_t *ret = (uint64_t *)buffer;
+	for (int i = 0; i < 8; i++) {
+		buffer[i] = (uint8_t)((hostlong >> ((7 - i) * 8)) & ((uint64_t)0xff));
+	}
+	return *ret;
+}
+
+uint64_t ntohll (uint64_t netlong)
+{
+	uint64_t ret = 0;
+	unsigned char *buffer = (unsigned char *)&netlong;
+	for (int i = 0; i < 8; i++) {
+		ret <<= 8;
+		ret |= buffer[i];
+	}
+	return ret;
+}
+
 int send_full (int sock, void *data, int len)
 {
 	const char *buf = (const char *) data;

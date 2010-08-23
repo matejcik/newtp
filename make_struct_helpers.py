@@ -85,6 +85,8 @@ def c_functions (s, p):
 			recv.append("	s->%s = ntohs(s->%s);" % (name,name))
 		elif tp == 'uint32_t':
 			recv.append("	s->%s = ntohl(s->%s);" % (name,name))
+		elif tp == 'uint64_t':
+			recv.append("	s->%s = ntohll(s->%s);" % (name,name))
 	recv.append(cf_recv_foot)
 	res.append('\n'.join(recv))
 
@@ -95,6 +97,8 @@ def c_functions (s, p):
 			sendp.append("	%s = htons(%s);" % (name,name))
 		elif tp == 'uint32_t':
 			sendp.append("	%s = htonl(%s);" % (name,name))
+		elif tp == 'uint64_t':
+			sendp.append("	%s = htonll(%s);" % (name,name))
 		sendp.append("	memcpy(buf + pos, &%s, sizeof(%s));" % (name, tp))
 		sendp.append("	pos += sizeof(%s);" % tp)
 	sendp.append(cf_sendp_foot)
