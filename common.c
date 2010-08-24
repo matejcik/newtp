@@ -82,7 +82,7 @@ int recv_data (int sock, struct data_packet * data)
 	if ((ret = recv_full(sock, &tmp, sizeof(uint32_t))) <= 0) return ret;
 	data->len = ntohl(tmp);
 	data->data = xmalloc(data->len);
-	if ((ret = send_full(sock, data->data, data->len) <= 0)) {
+	if ((ret = recv_full(sock, data->data, data->len) <= 0)) {
 		free(data->data);
 		return ret;
 	}
