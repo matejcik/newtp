@@ -1,10 +1,11 @@
-#include <sys/types.h>
-#include <sys/socket.h>
+#include <dirent.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 #include <unistd.h>
-#include <errno.h>
 
 #include <arpa/inet.h>
 
@@ -62,15 +63,22 @@ int validate_assign_handle (uint16_t handle, struct data_packet *pkt)
 	handles[handle][0] = '.';
 	handles[handle][pkt->len + 1] = 0;
 	strncpy(handles[handle] + 1, pkt->data, pkt->len);
-	
+
 	return STAT_OK;
 }
+
+#define VALIDATE_HANDLE(cmd) { \
+	if (cmd.handle >= MAXHANDLES || handles[cmd.handle] == NULL) { \
+		send_reply_p(sock_client, cmd.id, STAT_BADHANDLE, 0); \
+		break; \
+	}
 
 void work (void)
 {
 	struct command cmd;
 	struct data_packet pkt;
 	int reply;
+	DIR * dirent = NULL;
 
 	log("connection received");
 	atexit(&at_exit);
@@ -104,9 +112,17 @@ void work (void)
 				reply = validate_assign_handle(cmd.handle, &pkt);
 				if (reply == STAT_OK) {
 					logp("assigning to handle %d, name '%s'", cmd.handle, handles[cmd.handle]);
+				} else {
+					logp("assigning to handle %d failed: %d", cmd.handle, reply);
 				}
 				SAFE(send_reply_p(sock_client, cmd.id, reply, 0));
 				break;
+
+			case CMD_LIST:
+				// list directory - ha ha!
+				VALIDATE_HANDLE(cmd);
+
+				dirent = opendir(handles[cmd.handle]);
 		}
 	}
 }

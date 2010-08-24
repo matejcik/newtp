@@ -52,6 +52,13 @@ int main (int argc, char **argv)
 	assert(reply.status == STAT_OK);
 	assert(reply.datasize == 0);
 
+	send_command_p(sock, 1, CMD_ASSIGN, 0);
+	send_data(sock, "/", 1);
+	recv_reply(sock, &reply);
+	assert(reply.id == 1);
+	assert(reply.status == STAT_OK);
+	assert(reply.datasize == 0);
+
 	close(sock);
 
 	return 0;

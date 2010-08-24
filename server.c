@@ -60,7 +60,8 @@ int main (void)
 
 	/* first, load up address structs with getaddrinfo(): */
 	memset(&hints, 0, sizeof(hints));
-	hints.ai_family = AF_INET6; /* use IPv4 or IPv6, whichever */
+	hints.ai_family = AF_UNSPEC; /* use IPv4 or IPv6, whichever */
+	/* TODO try ipv6 and fall back to ipv4 - because getaddrinfo returns ipv4 first :/ */
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_flags = AI_PASSIVE; /* fill in my IP for me */
 

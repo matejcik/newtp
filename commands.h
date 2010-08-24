@@ -30,5 +30,6 @@
 #define STAT_EACCESS	0x82 // permission denied
 #define STAT_BADPATH	0x83 // specified path is invalid
 #define STAT_BADHANDLE	0x84 // invalid handle
+#define STAT_NOCONTINUE 0x85 // attempt to continue listing that was not started
 
 #endif
