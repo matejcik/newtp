@@ -16,7 +16,7 @@ int recv_data (int, struct data_packet *);
 #define SAFE(x) { \
 	int HANDLEret = x; \
 	if (HANDLEret == -1) { \
-		errp("in ##x : %s", strerror(errno)); \
+		errp("in " #x ": %s", strerror(errno)); \
 		die(); \
 	} else if (HANDLEret == 0) { \
 		log("connection lost"); \
