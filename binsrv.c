@@ -32,8 +32,29 @@ static void at_exit ()
 
 struct intro whoami;
 
+struct handle {
+	char *name;
+	FILE *file;
+	DIR *dir;
+};
 #define MAXHANDLES 16
-char* handles[MAXHANDLES];
+struct handle * handles[MAXHANDLES];
+
+struct handle * newhandle(char* name)
+{
+	struct handle * h = xmalloc(sizeof(struct handle));
+	h->name = name;
+	h->file = NULL;
+	h->dir = NULL;
+}
+
+void delhandle (struct handle * handle)
+{
+	free(handle->name);
+	if (handle->dir) closedir(handle->dir);
+	if (handle->file) fclose(handle->file);
+	free(handle);
+}
 
 int validate_assign_handle (uint16_t handle, struct data_packet *pkt)
 {
@@ -41,7 +62,8 @@ int validate_assign_handle (uint16_t handle, struct data_packet *pkt)
 #define DOTS 2
 #define OTHER 0
 	int state = OTHER;
-	char* c = pkt->data;
+	char *c = pkt->data;
+	char *name;
 	int pos = 0;
 
 	if (handle >= MAXHANDLES) return STAT_BADHANDLE;
@@ -58,12 +80,12 @@ int validate_assign_handle (uint16_t handle, struct data_packet *pkt)
 		++pos; ++c;
 	}
 
-	if (handles[handle]) free(handles[handle]);
-	handles[handle] = xmalloc(pkt->len + 2);
-	handles[handle][0] = '.';
-	handles[handle][pkt->len + 1] = 0;
-	strncpy(handles[handle] + 1, pkt->data, pkt->len);
-
+	if (handles[handle]) delhandle(handles[handle]);
+	name = xmalloc(pkt->len + 2);
+	name[0] = '.';
+	name[pkt->len + 1] = 0;
+	strncpy(name + 1, pkt->data, pkt->len);
+	handles[handle] = newhandle(name);
 	return STAT_OK;
 }
 
@@ -84,7 +106,7 @@ void work (void)
 	atexit(&at_exit);
 
 	// clear handles
-	for (int i = 0; i < MAXHANDLES; i++) handles[i] = 0;
+	for (int i = 0; i < MAXHANDLES; i++) handles[i] = NULL;
 
 	/* intro */
 	whoami.version = 0;
@@ -111,7 +133,7 @@ void work (void)
 
 				reply = validate_assign_handle(cmd.handle, &pkt);
 				if (reply == STAT_OK) {
-					logp("assigning to handle %d, name '%s'", cmd.handle, handles[cmd.handle]);
+					logp("assigning to handle %d, name '%s'", cmd.handle, handles[cmd.handle]->name);
 				} else {
 					logp("assigning to handle %d failed: %d", cmd.handle, reply);
 				}
@@ -122,7 +144,10 @@ void work (void)
 				// list directory - ha ha!
 				VALIDATE_HANDLE(cmd);
 
-				dirent = opendir(handles[cmd.handle]);
+				struct handle * h = handles[cmd.handle];
+
+				if (h->dir) closedir(h->dir);
+				h->dir = opendir(h->name);
 		}
 	}
 }
