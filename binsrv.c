@@ -46,6 +46,7 @@ struct handle * newhandle(char* name)
 	h->name = name;
 	h->file = NULL;
 	h->dir = NULL;
+	return h;
 }
 
 void delhandle (struct handle * handle)
@@ -93,7 +94,8 @@ int validate_assign_handle (uint16_t handle, struct data_packet *pkt)
 	if (cmd.handle >= MAXHANDLES || handles[cmd.handle] == NULL) { \
 		send_reply_p(sock_client, cmd.id, STAT_BADHANDLE, 0); \
 		break; \
-	}
+	} \
+}
 
 void work (void)
 {
@@ -148,6 +150,7 @@ void work (void)
 
 				if (h->dir) closedir(h->dir);
 				h->dir = opendir(h->name);
+
 		}
 	}
 }

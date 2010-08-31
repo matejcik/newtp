@@ -28,6 +28,9 @@ c_header = """\
 """ % FILENAME
 c_footer = ""
 
+def h_defs (s, f, l):
+	return '#define FORMAT_%s "%s"\n#define SIZEOF_%s (%s)\n' % (s,f,s,l)
+
 def h_send_struct (s):
 	return "int send_%s (int sock, struct %s *);\n" % (s,s)
 
@@ -37,82 +40,69 @@ def h_recv_struct (s):
 def h_send_struct_params (s, p):
 	return "int send_%s_p (int sock, %s);\n" % (s, ', '.join(map(lambda x: x[0], p)))
 
-cf_recv_head = """\
+def cf_recv (s, f):
+	return """\
 int recv_%s (int sock, struct %s * s)
 {
 	int ret;
-	int len = %s;
-	char buf[len];
-	int pos = 0;
+	char buf[SIZEOF_%s];
 
 	assert(s);
 
-	if ((ret = recv_full(sock, buf, len)) <= 0) return ret;
-""";
-cf_recv_foot = """\
+	if ((ret = recv_full(sock, buf, SIZEOF_%s)) <= 0) return ret;
+	assert(ret == SIZEOF_%s);
+	assert(unpack(buf, FORMAT_%s, %s) == SIZEOF_%s);
 	return ret;
 }
-""";
+""" % (s, s, s, s, s, s, f, s)
 
-cf_sendp_head = """\
+def cf_sendp (s, p, f):
+	return """\
 int send_%s_p (int sock, %s)
 {
-	int len = %s;
-	char buf[len];
-	int pos = 0;
-""";
-cf_sendp_foot = """\
-	return send_full(sock, buf, len);
+	char buf[SIZEOF_%s];
+	assert(pack(buf, FORMAT_%s, %s) == SIZEOF_%s);
+	return send_full(sock, buf, SIZEOF_%s);
 }
-""";
+""" % (s,p,s,s,f,s,s);
 
-cf_send = """\
+def cf_send (s, f):
+	return """\
 int send_%s (int sock, struct %s * s)
 {
 	return send_%s_p (sock, %s);
 }
-""";
+""" % (s,s,s,f);
 
-def c_functions (s, p):
+def genthings (p):
 	length = ' + '.join(map(lambda a: "sizeof(%s)" % a[0], p))
 	res = []
-	# recv
-	recv = [cf_recv_head % (s, s, length)]
+	fmt = []
+	plist = []
+	previous = ''
 	for tp, name in p:
-		recv.append("	memcpy(&s->%s, buf + pos, sizeof(%s));" % (name, tp))
-		recv.append("	pos += sizeof(%s);" % tp)
-		if tp == 'uint16_t':
-			recv.append("	s->%s = ntohs(s->%s);" % (name,name))
-		elif tp == 'uint32_t':
-			recv.append("	s->%s = ntohl(s->%s);" % (name,name))
-		elif tp == 'uint64_t':
-			recv.append("	s->%s = ntohll(s->%s);" % (name,name))
-	recv.append(cf_recv_foot)
-	res.append('\n'.join(recv))
+		if tp == 'uint8_t': fmt.append('c')
+		elif tp == 'uint16_t': fmt.append('s')
+		elif tp == 'uint32_t': fmt.append('i')
+		elif tp == 'uint64_t': fmt.append('l')
+		elif tp == 'char *':
+			if previous == 'uint16_t':
+				fmt.append('B')
+			else:
+				fmt.append('Z')
+		else:
+			print "unknown type:",tp
 
-	# send
-	sendp = [cf_sendp_head % (s, ', '.join(map(lambda a: "%s %s" % (a[0],a[1]), p)), length)]
-	for tp, name in p:
-		if tp == 'uint16_t':
-			sendp.append("	%s = htons(%s);" % (name,name))
-		elif tp == 'uint32_t':
-			sendp.append("	%s = htonl(%s);" % (name,name))
-		elif tp == 'uint64_t':
-			sendp.append("	%s = htonll(%s);" % (name,name))
-		sendp.append("	memcpy(buf + pos, &%s, sizeof(%s));" % (name, tp))
-		sendp.append("	pos += sizeof(%s);" % tp)
-	sendp.append(cf_sendp_foot)
-	res.append('\n'.join(sendp))
-
-	send = cf_send % (s, s, s, ', '.join(map(lambda a: "s->" + a[1], p)))
-	res.append(send)
-
-	return '\n'.join(res)
+		res.append(name)
+		plist.append("%s const %s" % (tp, name))
+		previous = tp
+	
+	return (length,res,''.join(fmt),', '.join(plist))
 
 import re
 
 start = re.compile('^struct ([a-z_]+) {$')
-item = re.compile('([a-z0-9_]+)\s+([a-z_]+);(?:\s*/\*.*\*/)?')
+item = re.compile('([a-z0-9_]+(?: ?\*)?)\s+([a-z_]+);(?:\s*/\*.*\*/)?')
 end = re.compile('^};$')
 
 h = open(FILENAME + '.h', 'w')
@@ -131,8 +121,6 @@ for line in src:
 		match = start.match(line)
 		if match:
 			struct = match.group(1)
-			h.write(h_recv_struct(struct))
-			h.write(h_send_struct(struct))
 			items = []
 	else:
 		match = item.match(line)
@@ -141,9 +129,21 @@ for line in src:
 		else:
 			match = end.match(line)
 			if match:
+				length, res, fmt, plist = genthings(items)
+				h.write(h_defs(struct, fmt, length))
+				h.write(h_recv_struct(struct))
+				h.write(h_send_struct(struct))
 				h.write(h_send_struct_params(struct,items))
 				h.write("\n")
-				c.write(c_functions(struct,items))
+
+				recvs = ', '.join(map(lambda a: "&s->%s" % a, res))
+				c.write(cf_recv(struct, recvs))
+				c.write("\n")
+				sends = ', '.join(map(lambda a: "s->%s" % a, res))
+				c.write(cf_send(struct, sends))
+				c.write("\n")
+				c.write(cf_sendp(struct, plist, ', '.join(res)))
+				
 				struct = None
 			else:
 				print "not matched:",line

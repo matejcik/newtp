@@ -41,6 +41,19 @@ struct intro {
 	uint16_t	handlelen;
 };
 
+#define ENTRY_FILE	1
+#define ENTRY_DIR	2
+#define ENTRY_OTHER	0
+
+#define RIGHTS_READ	1
+#define RIGHTS_WRITE	2
+struct dir_entry {
+	uint16_t	len;
+	char *		name;
+	uint8_t		type;
+	uint8_t		rights;
+};
+
 #include "struct_helpers.h"
 
 #endif

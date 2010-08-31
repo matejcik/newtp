@@ -7,6 +7,9 @@
 uint64_t htonll (uint64_t);
 uint64_t ntohll (uint64_t);
 
+int pack (char * const, char const *, ...);
+int unpack (char * const, char const *, ...);
+
 int send_full (int, void *, int);
 int recv_full (int, void *, int);
 
