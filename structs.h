@@ -32,7 +32,6 @@ struct data_packet { /* this does not have an auto-generated helper */
 struct reply {
 	uint16_t	id;		/* same as in command */
 	uint8_t		status;
-	uint32_t	datasize;
 };
 
 struct intro {
@@ -41,17 +40,21 @@ struct intro {
 	uint16_t	handlelen;
 };
 
+/* actual values */
 #define ENTRY_FILE	1
 #define ENTRY_DIR	2
 #define ENTRY_OTHER	0
+#define ENTRY_BAD	0xff
 
-#define RIGHTS_READ	1
-#define RIGHTS_WRITE	2
+/* bitmasks */
+#define PERM_READ	0x01
+#define PERM_WRITE	0x02
 struct dir_entry {
 	uint16_t	len;
 	char *		name;
 	uint8_t		type;
-	uint8_t		rights;
+	uint8_t		perm;
+	uint64_t	size;
 };
 
 #include "struct_helpers.h"

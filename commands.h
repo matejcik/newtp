@@ -27,9 +27,12 @@
 #define STAT_CONT	0x02
 #define STAT_ERROR	0x80
 #define STAT_NOTFOUND	0x81 // file under this handle doesn't exist
-#define STAT_EACCESS	0x82 // permission denied
-#define STAT_BADPATH	0x83 // specified path is invalid
-#define STAT_BADHANDLE	0x84 // invalid handle
-#define STAT_NOCONTINUE 0x85 // attempt to continue listing that was not started
+#define STAT_NOTFILE	0x82 // not a file
+#define STAT_NOTDIR	0x83 // not a directory
+#define STAT_EACCESS	0x84 // permission denied
+#define STAT_BADPATH	0x85 // specified path is invalid
+#define STAT_BADHANDLE	0x86 // invalid handle
+#define STAT_NOCONTINUE 0x87 // attempt to continue listing that was not started
+#define STAT_SERVFAIL	0x8f // internal server error
 
 #endif

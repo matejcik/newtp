@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -5,6 +6,7 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <arpa/inet.h>
@@ -36,7 +38,11 @@ struct handle {
 	char *name;
 	FILE *file;
 	DIR *dir;
+
+	struct dir_entry entry;
+	int elen;
 };
+
 #define MAXHANDLES 16
 struct handle * handles[MAXHANDLES];
 
@@ -92,17 +98,122 @@ int validate_assign_handle (uint16_t handle, struct data_packet *pkt)
 
 #define VALIDATE_HANDLE(cmd) { \
 	if (cmd.handle >= MAXHANDLES || handles[cmd.handle] == NULL) { \
-		send_reply_p(sock_client, cmd.id, STAT_BADHANDLE, 0); \
+		send_reply_p(sock_client, cmd.id, STAT_BADHANDLE); \
 		break; \
 	} \
+}
+
+int fill_entry (char const * directory, int dlen, struct dirent const * dirent, struct dir_entry * entry)
+{
+	char * path;
+	int len, ret;
+	struct stat st;
+	assert(entry); assert(dirent);
+	/* entry is pre-allocated and cleared, dirent should already be checked for null */
+
+	len = strlen(dirent->d_name);
+	if (entry->len < len) {
+		free(entry->name); /* entry->name should either be NULL or a malloc'd chunk */
+		entry->name = xmalloc(len + 1);
+	}
+	entry->len = len; /* overwriting the len info, so if there was a preallocated chunk,
+		we don't know its size now and we may be reallocating needlessly. still, it's
+		better than reallocating every time */
+	strncpy(entry->name, dirent->d_name, len + 1);
+
+	path = xmalloc(dlen + 1 + len + 1);
+	strncpy(path, directory, dlen);
+	path[dlen] = '/';
+	strncpy(path + dlen + 1, dirent->d_name, len + 1);
+
+	ret = stat(path, &st);
+	if (ret == -1) {
+		entry->type = ENTRY_BAD;
+	} else {
+		if (S_ISREG(st.st_mode)) entry->type = ENTRY_FILE;
+		else if (S_ISDIR(st.st_mode)) entry->type = ENTRY_DIR;
+		else entry->type = ENTRY_OTHER;
+
+		entry->size = st.st_size;
+
+		if ((st.st_uid == getuid() && st.st_mode & S_IRUSR)
+		 || (st.st_gid == getgid() && st.st_mode & S_IRGRP)
+		 || (st.st_mode && S_IROTH)) entry->perm |= PERM_READ;
+		if ((st.st_uid == getuid() && st.st_mode & S_IWUSR)
+		 || (st.st_gid == getgid() && st.st_mode & S_IWGRP)
+		 || (st.st_mode && S_IWOTH)) entry->perm |= PERM_WRITE;
+	}
+
+	return SIZEOF_dir_entry - sizeof(char*) + entry->len;
+}
+
+int do_initdir (int id, struct handle * h)
+{
+	if (h->dir) closedir(h->dir);
+	h->dir = opendir(h->name);
+	if (!h->dir) {
+		int err;
+		if (errno == EACCES) err = STAT_EACCESS;
+		else if (errno == ENOENT) err = STAT_NOTFOUND;
+		else if (errno == ENOTDIR) err = STAT_NOTDIR;
+		else if (errno == EMFILE || errno == ENFILE) /* TODO handle this better */ err = STAT_BADHANDLE;
+		else err = STAT_SERVFAIL;
+
+		send_reply_p(sock_client, id, err);
+		return 0;
+	}
+	h->entry.len = 0;
+	h->entry.name = NULL;
+	return 1;
+}
+
+void do_listdir (int id, struct handle * h)
+{
+	char * buffer;
+	int filled;
+	int dlen;
+	struct dirent * dirent;
+
+	dlen = strlen(h->name);
+
+	/* continues listing on preinitialized dir handle */
+	if (!h->dir) {
+		send_reply_p(sock_client, id, STAT_NOCONTINUE);
+		return;
+	}
+
+#define BUFLEN 128000
+	buffer = xmalloc(BUFLEN);
+	while ((dirent = readdir(h->dir))) {
+		h->elen = fill_entry(h->name, dlen, dirent, &h->entry);
+		if (h->entry.type == ENTRY_BAD) continue;
+		if (filled + h->elen < BUFLEN) {
+			pack(buffer + filled, FORMAT_dir_entry,
+				h->entry.len, h->entry.name,
+				h->entry.type, h->entry.perm, h->entry.size);
+			filled += h->elen;
+		} else {
+			send_reply_p(sock_client, id, STAT_CONT);
+			send_full(sock_client, buffer, filled);
+			free(buffer);
+			return;
+		}
+	}
+	/* we got to the end */
+	send_reply_p(sock_client, id, STAT_OK);
+	send_full(sock_client, buffer, filled);
+	free(buffer);
+	free(h->entry.name);
+	closedir(h->dir);
+	h->dir = NULL;
 }
 
 void work (void)
 {
 	struct command cmd;
 	struct data_packet pkt;
+	struct handle * h;
 	int reply;
-	DIR * dirent = NULL;
 
 	log("connection received");
 	atexit(&at_exit);
@@ -126,7 +237,7 @@ void work (void)
 		switch (cmd.command) {
 			case CMD_NOOP:
 				log("ping");
-				SAFE(send_reply_p(sock_client, cmd.id, STAT_OK, 0));
+				SAFE(send_reply_p(sock_client, cmd.id, STAT_OK));
 				break;
 
 			case CMD_ASSIGN:
@@ -139,18 +250,20 @@ void work (void)
 				} else {
 					logp("assigning to handle %d failed: %d", cmd.handle, reply);
 				}
-				SAFE(send_reply_p(sock_client, cmd.id, reply, 0));
+				SAFE(send_reply_p(sock_client, cmd.id, reply));
 				break;
 
 			case CMD_LIST:
 				// list directory - ha ha!
 				VALIDATE_HANDLE(cmd);
-
-				struct handle * h = handles[cmd.handle];
-
-				if (h->dir) closedir(h->dir);
-				h->dir = opendir(h->name);
-
+				h = handles[cmd.handle];
+				if (do_initdir(cmd.id, h)) do_listdir(cmd.id, h);
+				break;
+			case CMD_LIST_CONT:
+				VALIDATE_HANDLE(cmd);
+				h = handles[cmd.handle];
+				do_listdir(cmd.id, h);
+				break;
 		}
 	}
 }

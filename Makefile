@@ -9,7 +9,7 @@ OBJS = $(SRVOBJS) $(CLIOBJS)
 
 all: server client
 
-struct_helpers.c: make_struct_helpers.py
+struct_helpers.h: structs.h make_struct_helpers.py
 	./make_struct_helpers.py
 
 server:	$(SRVOBJS)
