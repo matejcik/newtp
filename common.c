@@ -8,6 +8,7 @@
 #include <sys/socket.h>
 
 #include "common.h"
+#include "log.h"
 #include "structs.h"
 #include "tools.h"
 
@@ -85,7 +86,7 @@ int pack (char * const buffer, char const * format, ...)
 				break;
 			case 'B': /* byte string, length specified by previous short */
 				string = va_arg(ap, char *);
-				assert(buf[-1] == 's');
+				assert(format[-1] == 's');
 				memcpy(buf, string, len);
 				buf += len;
 				break;
@@ -148,10 +149,10 @@ int unpack (char * const buffer, char const * format, ...)
 				break;
 			case 'B': /* byte string, length specified by previous short */
 				string = va_arg(ap, char **);
-				assert(buf[-1] == 's');
+				assert(format[-1] == 's');
 				*string = xmalloc(*v16bit + 1);
 				memcpy(*string, buf, *v16bit);
-				*string[*v16bit] = 0;
+				(*string)[*v16bit] = 0;
 				buf += *v16bit;
 				break;
 		}

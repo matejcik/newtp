@@ -12,6 +12,8 @@ all: server client
 struct_helpers.h: structs.h make_struct_helpers.py
 	./make_struct_helpers.py
 
+struct_helpers.c: struct_helpers.h
+
 server:	$(SRVOBJS)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -27,4 +29,4 @@ client: $(CLIOBJS)
 
 clean:
 	rm -f $(OBJS) \
-	rm -f server client struct_helpers.c *.d
+	rm -f server client struct_helpers.* *.d

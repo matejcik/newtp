@@ -164,13 +164,14 @@ int do_initdir (int id, struct handle * h)
 	}
 	h->entry.len = 0;
 	h->entry.name = NULL;
+	log("init successful");
 	return 1;
 }
 
 void do_listdir (int id, struct handle * h)
 {
 	char * buffer;
-	int filled;
+	int filled = 0;
 	int dlen;
 	struct dirent * dirent;
 
@@ -179,6 +180,7 @@ void do_listdir (int id, struct handle * h)
 	/* continues listing on preinitialized dir handle */
 	if (!h->dir) {
 		send_reply_p(sock_client, id, STAT_NOCONTINUE);
+		log("invalid continuation");
 		return;
 	}
 
@@ -194,18 +196,20 @@ void do_listdir (int id, struct handle * h)
 			filled += h->elen;
 		} else {
 			send_reply_p(sock_client, id, STAT_CONT);
-			send_full(sock_client, buffer, filled);
+			send_data(sock_client, buffer, filled);
 			free(buffer);
+			logp("sent %d bytes continued", filled);
 			return;
 		}
 	}
 	/* we got to the end */
 	send_reply_p(sock_client, id, STAT_OK);
-	send_full(sock_client, buffer, filled);
+	send_data(sock_client, buffer, filled);
 	free(buffer);
 	free(h->entry.name);
 	closedir(h->dir);
 	h->dir = NULL;
+	logp("sent %d bytes", filled);
 }
 
 void work (void)
@@ -226,7 +230,6 @@ void work (void)
 	whoami.maxhandles = MAXHANDLES;
 	whoami.handlelen = 4096;
 
-//	send_full (&whoami, sizeof(whoami));
 	SAFE(send_intro(sock_client, &whoami));
 
 	/* cmd loop */
@@ -257,6 +260,7 @@ void work (void)
 				// list directory - ha ha!
 				VALIDATE_HANDLE(cmd);
 				h = handles[cmd.handle];
+				logp("listing directory %s", h->name);
 				if (do_initdir(cmd.id, h)) do_listdir(cmd.id, h);
 				break;
 			case CMD_LIST_CONT:

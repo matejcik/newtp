@@ -22,6 +22,9 @@ int main (int argc, char **argv)
 	struct addrinfo *res;
 	struct intro intro;
 	struct reply reply;
+	struct data_packet data;
+	struct dir_entry entry;
+	int pos;
 	int sock;
 
 	if (argc < 2) {
@@ -56,6 +59,24 @@ int main (int argc, char **argv)
 	recv_reply(sock, &reply);
 	assert(reply.id == 1);
 	assert(reply.status == STAT_OK);
+
+	send_command_p(sock, 2, CMD_LIST, 0);
+	recv_reply(sock, &reply);
+	assert(reply.id == 2);
+	assert(reply.status == STAT_OK);
+	recv_data(sock, &data);
+	pos = 0;
+	while (pos < data.len) {
+		char parms[3] = "---";
+		unpack(data.data + pos, FORMAT_dir_entry, &entry.len, &entry.name, &entry.type, &entry.perm, &entry.size);
+		if (entry.type == ENTRY_DIR) parms[0] = 'd';
+		else if (entry.type == ENTRY_OTHER) parms[0] = '?';
+		if (entry.perm & PERM_READ) parms[1] = 'r';
+		if (entry.perm & PERM_WRITE) parms[2] = 'w';
+		printf("%.3s\t%.*s\t%llu\n", parms, entry.len, entry.name, entry.size);
+		pos += SIZEOF_dir_entry - sizeof(char *) + entry.len;
+	}
+	assert(pos == data.len);
 
 	close(sock);
 

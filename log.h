@@ -1,6 +1,9 @@
 #ifndef LOG__H__
 #define LOG__H__
 
+#include <stdio.h>
+#include <unistd.h>
+
 #define log__base_p(p, s, ...) fprintf(stderr, "child %d: " p " " s "\n", getpid(), __VA_ARGS__)
 #define log__base(p, s) fprintf(stderr, "child %d: " p " " s "\n", getpid())
 
