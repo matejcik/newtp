@@ -1,92 +1,166 @@
-#include <string.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
+#include <assert.h>
+#include <errno.h>
 #include <netdb.h>
-#include <unistd.h>
+#include <netinet/in.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <errno.h>
-#include <signal.h>
+#include <string.h>
+#include <sys/select.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+#include "commands.h"
+#include "common.h"
+#include "log.h"
+#include "server.h"
+#include "structs.h"
 
 #define MYPORT "5438"	/* the port users will be connecting to */
 #define BACKLOG 10	/* how many pending connections queue will hold */
 
-int sock_server;
-int sock_client;
-
-void work (void);
-
-void fork_client (int client)
-{
-	switch (fork()) {
-		case 0: /* we're the child! */
-			close(sock_server);
-			sock_client = client;
-			work();
-			exit(0);
-		case -1: /* fork failed! */
-			fprintf(stderr, "%s\n", strerror(errno));
-			break;
-		
-		default: /* we're the parent! */
-			/* do nothing? */
-			break;
-	}
+#define CHECK(err,call,ret) { \
+	err = call; \
+	if (err == -1) { perror(#call); ret; } \
 }
 
-static void at_exit ()
+#define SERVERS 10
+int sockets[SERVERS];
+int socknum = 0;
+
+int child = 0;
+int childsock;
+
+void close_server_sockets ()
 {
-	close(sock_server);
-	fprintf(stderr, "closed server\n");
+	for (int i = 0; i < socknum; i++)
+		close(sockets[i]);
+}
+
+void at_exit ()
+{
+	if (child) close(childsock);
+	else close_server_sockets();
 }
 
 void sighandler (int signal)
 {
+	exit(0); /* invokes at_exit handler */
+}
+
+void work (int sock)
+{
+	struct command cmd;
+
+	log("connection received");
+
+	SAFE(server_init(sock));
+
+	while (1) {
+		SAFE(recv_command(sock, &cmd));
+
+		switch (cmd.command) {
+			case CMD_NOOP: /* server ping - implemented right here */
+				log("ping");
+				SAFE(send_reply_p(sock, cmd.id, STAT_OK));
+				break;
+
+			case CMD_ASSIGN: /* assign a handle */
+				SAFE(cmd_assign(sock, &cmd));
+				break;
+			case CMD_LIST:
+				SAFE(cmd_list(sock, &cmd));
+				break;
+			case CMD_LIST_CONT:
+				SAFE(cmd_list_cont(sock, &cmd));
+				break;
+			case CMD_READ:
+				SAFE(cmd_read(sock, &cmd));
+				break;
+			case CMD_WRITE:
+				SAFE(cmd_write(sock, &cmd));
+				break;
+			case CMD_DELETE:
+				SAFE(cmd_delete(sock, &cmd));
+				break;
+			case CMD_RENAME:
+				SAFE(cmd_rename(sock, &cmd));
+				break;
+			default:
+				logp("unknown command: %x", cmd.command);
+				SAFE(send_reply_p(sock, cmd.id, STAT_BADCMD));
+				break;
+		}
+	}
+}
+
+void fork_client (int client)
+{
+	int pid;
+	CHECK(pid, fork(), return);
+
+	if (pid > 0) return;
+
+	/* we're the child! */
+	child = 1;
+	childsock = client;
+	close_server_sockets();
+	work(childsock);
 	exit(0);
 }
 
 int main (void)
 {
+	struct addrinfo hints, *res;
 	struct sockaddr_storage remote_addr;
 	socklen_t remote_addr_s = sizeof(remote_addr);
-	struct addrinfo hints, *res;
 	int yes = 1;
+	int sock, s, err, max = -1;
+	fd_set set;
 
-	atexit(at_exit);
+	atexit(&at_exit);
 	signal(SIGINT, sighandler);
-
-	/* !! don't forget your error checking for these calls !! */
+	signal(SIGTERM, sighandler);
+	signal(SIGSEGV, sighandler);
 
 	/* first, load up address structs with getaddrinfo(): */
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_UNSPEC; /* use IPv4 or IPv6, whichever */
-	/* TODO try ipv6 and fall back to ipv4 - because getaddrinfo returns ipv4 first :/ */
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_flags = AI_PASSIVE; /* fill in my IP for me */
 
-	getaddrinfo(NULL, MYPORT, &hints, &res);
+	CHECK(err,getaddrinfo(NULL, MYPORT, &hints, &res), return 1);
 
 	/* make a socket, bind it, and listen on it: */
+	while (res) {
+		CHECK(s, socket(res->ai_family, res->ai_socktype, res->ai_protocol), goto next);
+		CHECK(err, bind(s, res->ai_addr, res->ai_addrlen), goto next);
+		CHECK(err, setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)), /*nothing*/);
+		CHECK(err, listen(s, BACKLOG), goto next);
 
-	sock_server = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-	int err = bind(sock_server, res->ai_addr, res->ai_addrlen);
-	if (err) {
-		fprintf(stderr, "%s\n", strerror(errno));
-		return 1;
+		assert(socknum < SERVERS);
+		sockets[socknum] = s;
+		++socknum;
+	next:
+		res = res->ai_next;
 	}
-	err = setsockopt(sock_server, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
-	if (err) {
-		fprintf(stderr, "%s\n", strerror(errno));
-		return 1;
-	}
-	listen(sock_server, BACKLOG);
 
-	/* now accept an incoming connection: */
+	FD_ZERO(&set);
+	for (int i = 0; i < socknum; i++) {
+		FD_SET(sockets[i], &set);
+		if (i > max) max = i;
+	}
+	
 	while (1) {
-		int sock = accept(sock_server, (struct sockaddr *)&remote_addr, &remote_addr_s);
-		if (sock > 0) fork_client(sock);
-		else fprintf(stderr, "%s\n", strerror(errno));
+		CHECK(err, select(max + 1, &set, NULL, NULL, NULL), continue);
+		if (err <= 0) continue;
+
+		for (int i = 0; i < socknum; i++) {
+			if (FD_ISSET(sockets[i], &set)) {
+				CHECK(sock, accept(sockets[i], (struct sockaddr *)&remote_addr, &remote_addr_s), continue);
+				fork_client(sock);
+			}
+		}
 	}
-	return 0;
 }
