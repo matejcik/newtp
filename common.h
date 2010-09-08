@@ -20,10 +20,10 @@ int recv_data (int, struct data_packet *);
 	int HANDLEret = x; \
 	if (HANDLEret == -1) { \
 		errp("in " #x ": %s", strerror(errno)); \
-		die(); \
+		exit(1); \
 	} else if (HANDLEret == 0) { \
 		log("connection lost"); \
-		die(); \
+		exit(2); \
 	} \
 }
 

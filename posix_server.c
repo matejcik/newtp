@@ -12,27 +12,11 @@
 #include <arpa/inet.h>
 
 #include "commands.h"
-#include "structs.h"
 #include "common.h"
 #include "log.h"
+#include "server.h"
+#include "structs.h"
 #include "tools.h"
-
-extern int sock_client;
-
-void die ()
-{
-	log("exiting");
-	close(sock_client);
-	exit(1);
-}
-
-static void at_exit ()
-{
-	log("closed client connection");
-	close(sock_client);
-}
-
-struct intro whoami;
 
 struct handle {
 	char *name;
@@ -46,6 +30,7 @@ struct handle {
 #define MAXHANDLES 16
 struct handle * handles[MAXHANDLES];
 
+/**** handle functions ****/
 struct handle * newhandle(char* name)
 {
 	struct handle * h = xmalloc(sizeof(struct handle));
@@ -75,7 +60,7 @@ int validate_assign_handle (uint16_t handle, struct data_packet *pkt)
 
 	if (handle >= MAXHANDLES) return STAT_BADHANDLE;
 
-	if (*c != '/') return STAT_BADPATH;
+	//if (*c != '/') return STAT_BADPATH;
 	while (pos < pkt->len) {
 		if (!*c) return STAT_BADPATH;
 		if (state == DOTS && *c == '/') return STAT_BADPATH;
@@ -88,20 +73,23 @@ int validate_assign_handle (uint16_t handle, struct data_packet *pkt)
 	}
 
 	if (handles[handle]) delhandle(handles[handle]);
-	name = xmalloc(pkt->len + 2);
-	name[0] = '.';
-	name[pkt->len + 1] = 0;
-	strncpy(name + 1, pkt->data, pkt->len);
+	/* prepend "./", append "\0" */
+	name = xmalloc(pkt->len + 3);
+	name[0] = '.'; name[1] = '/';
+	strncpy(name + 2, pkt->data, pkt->len);
+	name[pkt->len + 2] = 0;
 	handles[handle] = newhandle(name);
 	return STAT_OK;
 }
 
-#define VALIDATE_HANDLE(cmd) { \
-	if (cmd.handle >= MAXHANDLES || handles[cmd.handle] == NULL) { \
-		send_reply_p(sock_client, cmd.id, STAT_BADHANDLE); \
-		break; \
+#define VALIDATE_HANDLE(sock, cmd) { \
+	if (cmd->handle >= MAXHANDLES || handles[cmd->handle] == NULL) { \
+		return send_reply_p(sock, cmd->id, STAT_BADHANDLE); \
 	} \
 }
+
+
+/***** directory listing functions *****/
 
 int fill_entry (char const * directory, int dlen, struct dirent const * dirent, struct dir_entry * entry)
 {
@@ -147,8 +135,29 @@ int fill_entry (char const * directory, int dlen, struct dirent const * dirent, 
 	return SIZEOF_dir_entry - sizeof(char*) + entry->len;
 }
 
-int do_initdir (int id, struct handle * h)
+#define MAYBE_RET(what) { \
+	int HANDLEret = what; \
+	if (HANDLEret <= 0) return HANDLEret; \
+}
+
+
+/**** actual command implementations ****/
+
+int cmd_assign (int sock, struct command *cmd)
 {
+	struct data_packet pkt;
+	if (cmd->handle >= MAXHANDLES) return send_reply_p(sock, cmd->id, STAT_BADHANDLE);
+
+	MAYBE_RET(recv_data(sock, &pkt));
+	return send_reply_p(sock, cmd->id, validate_assign_handle(cmd->handle, &pkt));
+}
+
+int cmd_list (int sock, struct command *cmd)
+{
+	struct handle * h;
+	VALIDATE_HANDLE(sock, cmd);
+	h = handles[cmd->handle];
+
 	if (h->dir) closedir(h->dir);
 	h->dir = opendir(h->name);
 	if (!h->dir) {
@@ -159,29 +168,30 @@ int do_initdir (int id, struct handle * h)
 		else if (errno == EMFILE || errno == ENFILE) /* TODO handle this better */ err = STAT_BADHANDLE;
 		else err = STAT_SERVFAIL;
 
-		send_reply_p(sock_client, id, err);
-		return 0;
+		return send_reply_p(sock, cmd->id, err);
 	}
 	h->entry.len = 0;
 	h->entry.name = NULL;
 	log("init successful");
-	return 1;
+	return cmd_list_cont(sock, cmd);
 }
 
-void do_listdir (int id, struct handle * h)
+int cmd_list_cont (int sock, struct command *cmd)
 {
 	char * buffer;
 	int filled = 0;
 	int dlen;
 	struct dirent * dirent;
+	struct handle * h;
+	VALIDATE_HANDLE(sock, cmd);
+	h = handles[cmd->handle];
 
 	dlen = strlen(h->name);
 
 	/* continues listing on preinitialized dir handle */
 	if (!h->dir) {
-		send_reply_p(sock_client, id, STAT_NOCONTINUE);
 		log("invalid continuation");
-		return;
+		return send_reply_p(sock, cmd->id, STAT_NOCONTINUE);
 	}
 
 #define BUFLEN 128000
@@ -195,34 +205,46 @@ void do_listdir (int id, struct handle * h)
 				h->entry.type, h->entry.perm, h->entry.size);
 			filled += h->elen;
 		} else {
-			send_reply_p(sock_client, id, STAT_CONT);
-			send_data(sock_client, buffer, filled);
+			MAYBE_RET(send_reply_p(sock, cmd->id, STAT_CONT));
+			MAYBE_RET(send_data(sock, buffer, filled));
 			free(buffer);
 			logp("sent %d bytes continued", filled);
-			return;
+			return filled;
 		}
 	}
 	/* we got to the end */
-	send_reply_p(sock_client, id, STAT_OK);
-	send_data(sock_client, buffer, filled);
+	MAYBE_RET(send_reply_p(sock, cmd->id, STAT_OK));
+	MAYBE_RET(send_data(sock, buffer, filled));
 	free(buffer);
 	free(h->entry.name);
 	closedir(h->dir);
 	h->dir = NULL;
 	logp("sent %d bytes", filled);
+	return filled;
 }
 
-void work (void)
+int cmd_read (int sock, struct command *cmd)
 {
-	struct command cmd;
-	struct data_packet pkt;
-	struct handle * h;
-	int reply;
+	return -1;
+}
+int cmd_write (int sock, struct command *cmd)
+{
+	return -1;
+}
+int cmd_delete (int sock, struct command *cmd)
+{
+	return -1;
+}
+int cmd_rename (int sock, struct command *cmd)
+{
+	return -1;
+}
 
-	log("connection received");
-	atexit(&at_exit);
+int server_init (int sock)
+{
+	struct intro whoami;
 
-	// clear handles
+	/* initialize handles */
 	for (int i = 0; i < MAXHANDLES; i++) handles[i] = NULL;
 
 	/* intro */
@@ -230,44 +252,5 @@ void work (void)
 	whoami.maxhandles = MAXHANDLES;
 	whoami.handlelen = 4096;
 
-	SAFE(send_intro(sock_client, &whoami));
-
-	/* cmd loop */
-	while (1) {
-//		recv_full(&cmd, sizeof(cmd));
-		SAFE(recv_command(sock_client, &cmd));
-
-		switch (cmd.command) {
-			case CMD_NOOP:
-				log("ping");
-				SAFE(send_reply_p(sock_client, cmd.id, STAT_OK));
-				break;
-
-			case CMD_ASSIGN:
-				// read data
-				SAFE(recv_data(sock_client, &pkt));
-
-				reply = validate_assign_handle(cmd.handle, &pkt);
-				if (reply == STAT_OK) {
-					logp("assigning to handle %d, name '%s'", cmd.handle, handles[cmd.handle]->name);
-				} else {
-					logp("assigning to handle %d failed: %d", cmd.handle, reply);
-				}
-				SAFE(send_reply_p(sock_client, cmd.id, reply));
-				break;
-
-			case CMD_LIST:
-				// list directory - ha ha!
-				VALIDATE_HANDLE(cmd);
-				h = handles[cmd.handle];
-				logp("listing directory %s", h->name);
-				if (do_initdir(cmd.id, h)) do_listdir(cmd.id, h);
-				break;
-			case CMD_LIST_CONT:
-				VALIDATE_HANDLE(cmd);
-				h = handles[cmd.handle];
-				do_listdir(cmd.id, h);
-				break;
-		}
-	}
+	return send_intro(sock, &whoami);
 }

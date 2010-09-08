@@ -34,5 +34,6 @@
 #define STAT_BADHANDLE	0x86 // invalid handle
 #define STAT_NOCONTINUE 0x87 // attempt to continue listing that was not started
 #define STAT_SERVFAIL	0x8f // internal server error
+#define STAT_BADCMD	0xff // invalid command
 
 #endif
