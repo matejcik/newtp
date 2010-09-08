@@ -46,6 +46,7 @@ void at_exit ()
 
 void sighandler (int signal)
 {
+	printf("\n");
 	exit(0); /* invokes at_exit handler */
 }
 
@@ -133,24 +134,27 @@ int main (void)
 	CHECK(err,getaddrinfo(NULL, MYPORT, &hints, &res), return 1);
 
 	/* make a socket, bind it, and listen on it: */
-	while (res) {
-		CHECK(s, socket(res->ai_family, res->ai_socktype, res->ai_protocol), goto next);
-		CHECK(err, bind(s, res->ai_addr, res->ai_addrlen), goto next);
+	for (; res; res = res->ai_next) {
+		CHECK(s, socket(res->ai_family, res->ai_socktype, res->ai_protocol), continue);
+		logp("bound %d to %d with %d", s, res->ai_family, res->ai_protocol);
+		if (res->ai_family == AF_INET6) {
+			CHECK(err, setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY, &yes, sizeof(int)), /*nothing*/);
+		}
+		CHECK(err, bind(s, res->ai_addr, res->ai_addrlen), continue);
 		CHECK(err, setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)), /*nothing*/);
-		CHECK(err, listen(s, BACKLOG), goto next);
+		CHECK(err, listen(s, BACKLOG), continue);
 
 		assert(socknum < SERVERS);
 		sockets[socknum] = s;
 		++socknum;
-	next:
-		res = res->ai_next;
 	}
 
 	FD_ZERO(&set);
 	for (int i = 0; i < socknum; i++) {
 		FD_SET(sockets[i], &set);
-		if (i > max) max = i;
+		if (sockets[i] > max) max = sockets[i];
 	}
+	logp("we have %d sockets, max is %d", socknum, max);
 	
 	while (1) {
 		CHECK(err, select(max + 1, &set, NULL, NULL, NULL), continue);
