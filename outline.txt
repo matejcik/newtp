@@ -33,4 +33,11 @@
 	...?
 
 6. protocol description
- - in RFC format
+ - in RFC format?
+
+7. server implementation
+ - .....
+
+8. client implementation
+ - .....
+ - mDNS discovery on different platforms
