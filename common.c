@@ -205,6 +205,7 @@ int send_data (int sock, void *data, int len)
 	uint32_t tmp = htonl(len);
 	int ret;
 	if ((ret = send_full(sock, &tmp, sizeof(uint32_t))) <= 0) return ret;
+	if (len == 0) return sizeof(uint32_t);
 	if ((ret = send_full(sock, data, len) <= 0)) return ret;
 	return ret + sizeof(uint32_t);
 }
@@ -215,6 +216,10 @@ int recv_data (int sock, struct data_packet * data)
 	int ret;
 	if ((ret = recv_full(sock, &tmp, sizeof(uint32_t))) <= 0) return ret;
 	data->len = ntohl(tmp);
+	if (data->len == 0) {
+		data->data = NULL;
+		return sizeof(uint32_t);
+	}
 	data->data = xmalloc(data->len);
 	if ((ret = recv_full(sock, data->data, data->len) <= 0)) {
 		free(data->data);
