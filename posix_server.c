@@ -102,6 +102,7 @@ int validate_assign_handle (uint16_t handle, struct data_packet *pkt)
 	strncpy(name + 2, pkt->data, pkt->len);
 	name[pkt->len + 2] = 0;
 	handles[handle] = newhandle(name);
+	logp("handle %d is now \"%s\"", handle, name);
 	return STAT_OK;
 }
 
@@ -172,6 +173,7 @@ int cmd_list (int sock, struct command *cmd)
 {
 	struct handle * h;
 	VALIDATE_HANDLE(h, sock, cmd);
+	logp("CMD_LIST %d (%s)", cmd->handle, h->name);
 
 	if (h->dir) closedir(h->dir);
 	h->dir = opendir(h->name);
@@ -187,7 +189,6 @@ int cmd_list (int sock, struct command *cmd)
 	}
 	h->entry.len = 0;
 	h->entry.name = NULL;
-	log("init successful");
 	return cmd_list_cont(sock, cmd);
 }
 
@@ -199,6 +200,7 @@ int cmd_list_cont (int sock, struct command *cmd)
 	struct dirent * dirent;
 	struct handle * h;
 	VALIDATE_HANDLE(h, sock, cmd);
+	logp("listing %d (%s)", cmd->handle, h->name);
 
 	dlen = strlen(h->name);
 
@@ -253,6 +255,7 @@ int cmd_read (int sock, struct command *cmd)
 	MAYBE_RET(recv_params_offlen(sock, &params));
 
 	VALIDATE_HANDLE(h, sock, cmd);
+	logp("CMD_READ %d (%s): ofs %llu, len %d", cmd->handle, h->name, params.offset, params.length);
 
 	if (h->file > 0 && h->open_wr) {
 		close(h->file);
