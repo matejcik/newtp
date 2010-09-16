@@ -1,6 +1,8 @@
 #include <assert.h>
 #include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,8 +22,8 @@
 
 struct handle {
 	char *name;
-	FILE *file;
-	int open_rw;
+	int file;
+	int open_wr;
 	DIR *dir;
 
 	struct dir_entry entry;
@@ -31,22 +33,38 @@ struct handle {
 #define MAXHANDLES 16
 struct handle * handles[MAXHANDLES];
 
+#define MAXBUFFER (5*1024*1024)
+
+/**** useful syscall macros ****/
+
+/* to be used with recv_* and send_* only. file-related syscalls must handle their errors */
+#define MAYBE_RET(what) { \
+	int HANDLEret = what; \
+	if (HANDLEret <= 0) return HANDLEret; \
+}
+
+/* EINTR retrying macros for functions that return 0/null or -1 on failure */
+#define RETRY0(a, what) do { a = what; } while (a == 0 && errno == EINTR)
+#define RETRY1(a, what) do { a = what; } while (a == -1 && errno == EINTR)
+
+
 /**** handle functions ****/
 struct handle * newhandle(char* name)
 {
 	struct handle * h = xmalloc(sizeof(struct handle));
 	h->name = name;
-	h->file = NULL;
-	h->open_rw = 0;
+	h->file = -1;
+	h->open_wr = 0;
 	h->dir = NULL;
 	return h;
 }
 
 void delhandle (struct handle * handle)
 {
+	int c;
 	free(handle->name);
 	if (handle->dir) closedir(handle->dir);
-	if (handle->file) fclose(handle->file);
+	if (handle->file) RETRY1(c, close(handle->file));
 	free(handle);
 }
 
@@ -139,16 +157,6 @@ int fill_entry (char const * directory, int dlen, struct dirent const * dirent, 
 	return SIZEOF_dir_entry - sizeof(char*) + entry->len;
 }
 
-/* to be used with recv_* and send_* only. file-related syscalls must handle their errors */
-#define MAYBE_RET(what) { \
-	int HANDLEret = what; \
-	if (HANDLEret <= 0) return HANDLEret; \
-}
-
-/* EINTR retrying macros for functions that return 0/null or -1 on failure */
-#define RETRY0(a, what) do { a = what; } while (a == 0 && errno == EINTR)
-#define RETRY1(a, what) do { a = what; } while (a == -1 && errno == EINTR)
-
 /**** actual command implementations ****/
 
 int cmd_assign (int sock, struct command *cmd)
@@ -237,7 +245,8 @@ int cmd_read (int sock, struct command *cmd)
 {
 	struct handle * h;
 	int err;
-	long pos;
+	int done = 0;
+	char * buf;
 	struct params_offlen params;
 
 	/* be a good guy and pick parameters first */
@@ -245,20 +254,24 @@ int cmd_read (int sock, struct command *cmd)
 
 	VALIDATE_HANDLE(h, sock, cmd);
 
-	if (!h->file) {
-		RETRY0(h->file, fopen(h->name, "r"));
+	if (h->file > 0 && h->open_wr) {
+		close(h->file);
+		h->file = -1;
+	}
+	if (h->file == -1) {
+		RETRY1(h->file, open(h->name, O_RDONLY));
 		err = STAT_OK;
-		if (!h->file) { /* open failed */
+		if (h->file == -1) { /* open failed */
 			if (errno == EACCES) err = STAT_EACCESS;
-			else if (errno == EISDIR) err = STAT_NOTFILE;
 			else if (errno == ENOENT) err = STAT_NOTFOUND;
 			else if (errno == ENOTDIR) err = STAT_BADPATH;
 			else err = STAT_SERVFAIL;
 			return send_reply_p(sock, cmd->id, err);
 		}
+		h->open_wr = 0;
 	}
 	/* TODO check whether the open handle belongs to the correct path */
-	RETRY1(err, fseek(h->file, params->offset, SEEK_SET));
+	RETRY1(err, lseek(h->file, params.offset, SEEK_SET));
 	if (err == -1) {
 		if (errno == EINVAL) {
 			/* offset beyond end of file - return an empty read */
@@ -270,6 +283,32 @@ int cmd_read (int sock, struct command *cmd)
 		}
 	}
 
+	if (params.length > MAXBUFFER) params.length = MAXBUFFER;
+	assert(params.length < SSIZE_MAX); /* "If count is greater than SSIZE_MAX, the result is unspecified." */
+	buf = xmalloc(params.length);
+	/* manual retry-loop */
+	while (done < params.length) {
+		err = read(h->file, buf + done, params.length - done);
+		if (err == -1) {
+			if (errno == EINTR) continue;
+			else if (errno == EISDIR || errno == EFAULT) {
+				return send_reply_p(sock, cmd->id, STAT_NOTFILE);
+			} else if (errno == EIO) {
+				if (done > 0) /* return short read */ break;
+				else return send_reply_p(sock, cmd->id, STAT_IO);
+			} else {
+				return send_reply_p(sock, cmd->id, STAT_SERVFAIL);
+			}
+		} else if (err == 0) {
+			/* EOF - short read */
+			break;
+		} else {
+			done += err;
+		}
+	}
+	/* we have read all the requested data */
+	MAYBE_RET(send_reply_p(sock, cmd->id, STAT_OK));
+	return send_data(sock, buf, done);
 }
 
 int cmd_write (int sock, struct command *cmd)
