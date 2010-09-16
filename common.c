@@ -39,7 +39,7 @@ int pack (char * const buffer, char const * format, ...)
 	va_list ap;
 	char * buf = buffer;
 	char * string;
-	int num; long lnum;
+	int num; uint64_t lnum;
 	uint8_t v8bit;
 	uint16_t v16bit;
 	uint32_t v32bit;
@@ -70,7 +70,7 @@ int pack (char * const buffer, char const * format, ...)
 				buf += 4;
 				break;
 			case 'l': /* 64bit long */
-				lnum = va_arg(ap, unsigned long);
+				lnum = va_arg(ap, uint64_t);
 				v64bit = htonll((uint64_t)lnum);
 				memcpy(buf, &v64bit, 8);
 				buf += 8;
