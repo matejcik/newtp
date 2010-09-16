@@ -1,20 +1,140 @@
 #include <assert.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <netdb.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "commands.h"
 #include "common.h"
+#include "log.h"
 #include "structs.h"
 #include "tools.h"
 
 #define MYPORT "5438"
 /* LIFT on a phone */
+
+void print_listing (struct data_packet data)
+{
+	struct dir_entry entry;
+	int pos = 0;
+	while (pos < data.len) {
+		char parms[3] = "---";
+		unpack(data.data + pos, FORMAT_dir_entry, &entry.len, &entry.name, &entry.type, &entry.perm, &entry.size);
+		if (entry.type == ENTRY_DIR) parms[0] = 'd';
+		else if (entry.type == ENTRY_OTHER) parms[0] = '?';
+		if (entry.perm & PERM_READ) parms[1] = 'r';
+		if (entry.perm & PERM_WRITE) parms[2] = 'w';
+		printf("%.3s %.*s\t\t%llu\n", parms, entry.len, entry.name, entry.size);
+		pos += SIZEOF_dir_entry - sizeof(char *) + entry.len;
+	}
+	assert(pos == data.len);
+}
+
+void do_assign (int sock, char * path, int handle)
+{
+	struct reply reply;
+	SAFE(send_command_p(sock, 1, CMD_ASSIGN, handle));
+	SAFE(send_data(sock, path, strlen(path)));
+	SAFE(recv_reply(sock, &reply));
+	assert(reply.id == 1);
+	if (reply.status != STAT_OK) {
+		fprintf(stderr, "failed to assign handle\n");
+		exit(1);
+	}
+}
+
+void do_list (int sock, char * path)
+{
+	struct reply reply;
+	struct data_packet data;
+	do_assign(sock, path, 1);
+	int id = 2;
+	int end = 0;
+	SAFE(send_command_p(sock, id, CMD_LIST, 1));
+	do {
+		SAFE(recv_reply(sock, &reply));
+		assert(reply.id == id);
+		switch (reply.status) {
+			case STAT_OK:
+				end = 1;
+			case STAT_CONT:
+				SAFE(recv_data(sock, &data));
+				print_listing(data);
+				if (!end) SAFE(send_command_p(sock, ++id, CMD_LIST_CONT, 1));
+				break;
+			default:
+				fprintf(stderr, "listing '%s' failed: %d\n", path, reply.status);
+				exit(1);
+		}
+	} while (!end);
+}
+
+void do_get (int sock, char * path, char * target, int overwrite)
+{
+	struct reply reply;
+	struct data_packet data;
+	do_assign(sock, path, 1);
+	int id = 2, rid = 1;
+	long ofs = 0;
+	int fd;
+	const int len = 65536;
+
+	/* TODO ensure that the file exists and is readable on server side
+	 before creating the local file */
+
+	fd = open(target, O_WRONLY | O_CREAT | (overwrite ? O_TRUNC : 0), 0644);
+	if (fd == -1) {
+		fprintf(stderr, "failed to open %s: %s\n", target, strerror(errno));
+		exit(1);
+	}
+	ofs = lseek(fd, 0, SEEK_END);
+
+	/* simplistic-smart approach: send many reads at once, for each success
+	 * send a next one. exit when first read fails/shorts. */
+	for (int i = 0; i < 8; i++) {
+		SAFE(send_command_p(sock, id++, CMD_READ, 1));
+		SAFE(send_params_offlen_p(sock, ofs, len));
+		ofs += len;
+	}
+	while (1) {
+		SAFE(recv_reply(sock, &reply));
+		assert(reply.id > rid);
+		rid = reply.id;
+		if (reply.status != STAT_OK) {
+			/* bail */
+			fprintf(stderr, "read failed: %x\n", reply.status);
+			exit(1);
+		}
+		SAFE(recv_data(sock, &data));
+		if (data.len > 0) {
+			int l = 0;
+			do {
+				int i = write(fd, data.data + l, data.len - l);
+				if (i <= 0) {
+					if (errno == EINTR) continue;
+					else {
+						fprintf(stderr, "failed to write to %s: %s\n", target, strerror(errno));
+						exit(1);
+					}
+				}
+				l += i;
+			} while (l < data.len);
+			free(data.data);
+		} else {
+			close(fd);
+			break;
+		}
+		SAFE(send_command_p(sock, id++, CMD_READ, 1));
+		SAFE(send_params_offlen_p(sock, ofs, len));
+		ofs += len;
+	}
+}
 
 int main (int argc, char **argv)
 {
@@ -22,15 +142,17 @@ int main (int argc, char **argv)
 	struct addrinfo *res;
 	struct intro intro;
 	struct reply reply;
-	struct data_packet data;
-	struct dir_entry entry;
-	int pos;
+	char * command, * path, * target;
 	int sock;
 
-	if (argc < 2) {
-		printf("usage: %s <address>\n", argv[0]);
+	if (argc < 3) {
+		printf("usage: %s <address> <command> [path]\n", argv[0]);
 		return 0;
 	}
+
+	command = argv[2];
+	if (argc > 3) path = argv[3];
+	else path = "";
 
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_UNSPEC;
@@ -47,36 +169,24 @@ int main (int argc, char **argv)
 	}
 
 	recv_intro(sock, &intro);
-	printf("server version %d, max %d handles, max %d chars per handle\n", intro.version, intro.maxhandles, intro.handlelen);
+	fprintf(stderr, "server version %d, max %d handles, max %d chars per handle\n", intro.version, intro.maxhandles, intro.handlelen);
 	send_command_p(sock, 55, CMD_NOOP, 0);
 	recv_reply(sock, &reply);
-	printf("server responds to ping!\n");
+	fprintf(stderr, "server responds to ping!\n");
 	assert(reply.id == 55);
 	assert(reply.status == STAT_OK);
 
-	send_command_p(sock, 1, CMD_ASSIGN, 0);
-	send_data(sock, "/", 1);
-	recv_reply(sock, &reply);
-	assert(reply.id == 1);
-	assert(reply.status == STAT_OK);
-
-	send_command_p(sock, 2, CMD_LIST, 0);
-	recv_reply(sock, &reply);
-	assert(reply.id == 2);
-	assert(reply.status == STAT_OK);
-	recv_data(sock, &data);
-	pos = 0;
-	while (pos < data.len) {
-		char parms[3] = "---";
-		unpack(data.data + pos, FORMAT_dir_entry, &entry.len, &entry.name, &entry.type, &entry.perm, &entry.size);
-		if (entry.type == ENTRY_DIR) parms[0] = 'd';
-		else if (entry.type == ENTRY_OTHER) parms[0] = '?';
-		if (entry.perm & PERM_READ) parms[1] = 'r';
-		if (entry.perm & PERM_WRITE) parms[2] = 'w';
-		printf("%.3s\t%.*s\t%llu\n", parms, entry.len, entry.name, entry.size);
-		pos += SIZEOF_dir_entry - sizeof(char *) + entry.len;
+	if (!strcmp("list", command)) {
+		do_list(sock, path);
+	} else if (!strcmp("get", command)) {
+		char * c = path;
+		target = path;
+		while (*c++) if (*c == '/') target = c + 1;
+		do_get(sock, path, target, 0);
+	} else {
+		fprintf(stderr, "unknown command: %s\n", command);
+		exit(1);
 	}
-	assert(pos == data.len);
 
 	close(sock);
 
