@@ -20,12 +20,10 @@ server:	$(SRVOBJS)
 client: $(CLIOBJS)
 	$(CC) $(CFLAGS) $^ -o $@
 
--include $(subst .o,.d,$(OBJS))
+-include $(OBJS:.o=.d)
 
 %.d: %.c
-	$(CC) -M $(CPPFLAGS) $< > $@.$$$$;                  \
-	sed 's,\($*\)\.o[ :]*,\1.o $@ : ,g' < $@.$$$$ > $@; \
-	rm -f $@.$$$$
+	$(CC) -MM $(CPPFLAGS) $< > $@
 
 clean:
 	rm -f $(OBJS) \
