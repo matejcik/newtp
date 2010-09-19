@@ -24,11 +24,6 @@ struct command {
 	uint16_t handle;	/* file resource handle */
 };
 
-struct data_packet { /* this does not have an auto-generated helper */
-	uint32_t len;
-	char *data;
-};
-
 struct reply {
 	uint16_t	id;		/* same as in command */
 	uint8_t		status;
@@ -37,7 +32,7 @@ struct reply {
 struct intro {
 	uint16_t	version;
 	uint16_t	maxhandles;
-	uint16_t	handlelen;
+	uint16_t	maxdata;
 };
 
 /* actual values */

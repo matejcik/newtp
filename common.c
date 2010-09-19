@@ -167,37 +167,35 @@ int unpack (char * const buffer, char const * format, ...)
 int send_full (int sock, void *data, int len)
 {
 	const char *buf = (const char *) data;
-	int origlen = len;
-	while (1) {
-		int wrote = send(sock, buf, len, 0);
-		if (wrote == len) return origlen;
-		else if (wrote < 0) {
+	int total = 0
+	while (total < len) {
+		int w = send(sock, buf + total, len - total, 0);
+		if (w < 0) {
 			if (errno == EINTR) continue;
 			else return -1;
-		}
-		else if (wrote == 0) return 0;
-		else {
-			buf += wrote;
-			len -= wrote;
+		} else if (w == 0) {
+			return 0;
+		} else {
+			total += w;
 		}
 	}
+	return total;
 }
 
 int recv_full (int sock, void *data, int len)
 {
 	char *buf = (char *) data;
-	int orig_len = len;
-	while (1) {
-		int read = recv(sock, buf, len, 0);
-		if (read < 0) {
+	int total = 0;
+	while (total < len) {
+		int r = recv(sock, buf + total, len - total, 0);
+		if (r < 0) {
 			if (errno == EINTR) continue;
 			else return -1; /* error */
 		}
-		if (read == 0) return 0; /* connection reset by peer */
-		len -= read;
-		buf += read;
-		if (len <= 0) return orig_len; /* done */
+		if (r == 0) return 0; /* connection reset by peer */
+		total += r;
 	}
+	return total;
 }
 
 int send_data (int sock, void *data, int len)
@@ -205,25 +203,15 @@ int send_data (int sock, void *data, int len)
 	uint32_t tmp = htonl(len);
 	int ret;
 	if ((ret = send_full(sock, &tmp, sizeof(uint32_t))) <= 0) return ret;
-	if (len == 0) return sizeof(uint32_t);
+	if (len == 0) return 1;
 	if ((ret = send_full(sock, data, len) <= 0)) return ret;
-	return ret + sizeof(uint32_t);
+	return 1;
 }
 
-int recv_data (int sock, struct data_packet * data)
+int recv_length (int sock, int * len)
 {
 	uint32_t tmp;
-	int ret;
-	if ((ret = recv_full(sock, &tmp, sizeof(uint32_t))) <= 0) return ret;
-	data->len = ntohl(tmp);
-	if (data->len == 0) {
-		data->data = NULL;
-		return sizeof(uint32_t);
-	}
-	data->data = xmalloc(data->len);
-	if ((ret = recv_full(sock, data->data, data->len) <= 0)) {
-		free(data->data);
-		return ret;
-	}
-	return ret + sizeof(uint32_t);
+	int ret = recv_full(sock, &tmp, sizeof(uint32_t));
+	if (ret > 0) *len = ntohl(tmp);
+	return ret;
 }

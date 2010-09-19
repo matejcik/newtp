@@ -32,6 +32,7 @@ struct handle {
 
 #define MAXHANDLES 16
 struct handle * handles[MAXHANDLES];
+#define MAXDATA (1024*1024)
 
 #define MAXBUFFER (5*1024*1024)
 
@@ -163,10 +164,18 @@ int fill_entry (char const * directory, int dlen, struct dirent const * dirent, 
 int cmd_assign (int sock, struct command *cmd)
 {
 	struct data_packet pkt;
+	char * buf = xmalloc(MAXDATA);
+	int len;
 	if (cmd->handle >= MAXHANDLES) return send_reply_p(sock, cmd->id, STAT_BADHANDLE);
 
-	MAYBE_RET(recv_data(sock, &pkt));
-	return send_reply_p(sock, cmd->id, validate_assign_handle(cmd->handle, &pkt));
+	MAYBE_RET(recv_length(sock, &len));
+	if (len <= MAXDATA) {
+		MAYBE_RET(recv_full(sock, buf, len));
+		return send_reply_p(sock, cmd->id, validate_assign_handle(cmd->handle, &pkt));
+	} else {
+		/* fail, kick the connection */
+		return -1;
+	}
 }
 
 int cmd_list (int sock, struct command *cmd)
@@ -337,7 +346,7 @@ int server_init (int sock)
 	/* intro */
 	whoami.version = 0;
 	whoami.maxhandles = MAXHANDLES;
-	whoami.handlelen = 4096;
+	whoami.maxdata = MAXDATA;
 
 	return send_intro(sock, &whoami);
 }

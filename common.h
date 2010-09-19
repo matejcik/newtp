@@ -13,8 +13,10 @@ int unpack (char * const, char const *, ...);
 int send_full (int, void *, int);
 int recv_full (int, void *, int);
 
+/* send 32bit length + content of buffer */
 int send_data (int, void *, int);
-int recv_data (int, struct data_packet *);
+/* recv 32bit length */
+int recv_length (int, int *);
 
 #define SAFE(x) { \
 	int HANDLEret = x; \
