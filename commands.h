@@ -19,7 +19,7 @@
 // handle is redirected to new name
 #define CMD_RENAME	0x0007
 
-// cancel running operation
+// cancel running operation - not implemented now
 #define CMD_CANCEL	0x0010
 
 

@@ -4,12 +4,18 @@
 #include <sys/types.h>
 #include "structs.h"
 
+/* host-to-network and network-to-host byte order conversion
+ for 64bit ints */
 uint64_t htonll (uint64_t);
 uint64_t ntohll (uint64_t);
 
+/* binary serialization and de-serialization with sprintf-like
+   format specifier */
 int pack (char * const, char const *, ...);
 int unpack (char * const, char const *, ...);
 
+/* send()/recv() wrappers that don't return until the whole
+   buffer is transferred */
 int send_full (int, void *, int);
 int recv_full (int, void *, int);
 
@@ -20,6 +26,7 @@ int recv_length (int, int *);
 /* send 32bit length */
 int send_length (int, int);
 
+/* network call wrapper that dies on failure */
 #define SAFE(x) { \
 	int HANDLEret = x; \
 	if (HANDLEret == -1) { \
