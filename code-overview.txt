@@ -1,0 +1,64 @@
+1. Protocol overview
+--------------------
+
+The protocol is binary, sent over TCP. It is supposed to be wrapped in TLS
+or other encryption layer, but this is not done yet.
+The server is almost-stateless: it allows the client to register a number
+of string "handles" to server resources, and then use those as parameters
+to manipulation commands.
+The protocol is client-driven - server never sends a response unless explicitly
+asked to. Also, the server must always specify the size of its response,
+and except for directory listing, the client can limit size of responses.
+That is why there is an upper bound on the amount of data the server can send:
+it must be sure that it has all the data it promised to send.
+
+Every client command is sent in the form of "command" packet: command id (is
+echoed back in reply), command instruction and handle id.
+The command packet is optionally followed by parameters and/or data, depending
+on the command. Parameters and data are roughly described in commands.h,
+more precisely in structs.h.
+The server must reply to every command instruction with a "reply" packet:
+echoed command id and a status code. This might be followed by data, depending
+on the command and reply status.
+Each block of data must be preceded by a 32bit integer specifying data length.
+
+All numbers are transferred in Network byte order.
+
+2. Common parts
+---------------
+
+* tools.h / tools.c - several useful modifications of library functions.
+  Currently xmalloc (dying malloc), xrealloc (dying realloc), strncpyz
+  (strncpy that sets last character to zero)
+
+* commands.h - defines numeric values for protocol commands and response codes
+
+* structs.h - defines structs for various packet types.
+  make_struct_helpers.py generates helper functions for manipulating the packets,
+  in files struct_helpers.h and .c
+
+* log.h - set of crude logging macros. Those might be expanded in the future
+  to allow for better and more flexible logging.
+
+* common.h / common.c - some common packet-handling functionality. See common.h
+  for explanations.
+
+3. Server parts
+---------------
+
+* server.c - server's main() function. This listens on all available network
+  interfaces, handles forking for client requests, implements main request/reply
+  loop (function work()), parses command-line arguments and installs shares.
+
+* paths.h / paths.c - managing of shares and file handles.
+  Has functions to install shares, validate and assign client-requested handles
+  and map them to local paths through the defined shares.
+
+* operations.h / operations.c - implements the code for each command
+
+4. Client parts
+---------------
+
+* client.c - a simplistic command-line client. The main() functions establishes
+  connection to server and fires off a command-specific function specified as
+  command line argument.
