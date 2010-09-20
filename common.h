@@ -29,4 +29,8 @@ int recv_length (int, int *);
 	} \
 }
 
+/* EINTR retrying macros for functions that return 0/null or -1 on failure */
+#define RETRY0(a, what) do { a = what; } while (a == 0 && errno == EINTR)
+#define RETRY1(a, what) do { a = what; } while (a == -1 && errno == EINTR)
+
 #endif

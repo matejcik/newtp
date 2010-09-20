@@ -14,7 +14,8 @@
 #include "commands.h"
 #include "common.h"
 #include "log.h"
-#include "server.h"
+#include "operations.h"
+#include "paths.h"
 #include "structs.h"
 
 #define MYPORT "5438"	/* the port users will be connecting to */
@@ -111,7 +112,7 @@ void fork_client (int client)
 	exit(0);
 }
 
-int main (void)
+int main (int argc, char ** argv)
 {
 	struct addrinfo hints, *res;
 	struct sockaddr_storage remote_addr;
@@ -124,6 +125,55 @@ int main (void)
 	signal(SIGINT, sighandler);
 	signal(SIGTERM, sighandler);
 	signal(SIGSEGV, sighandler);
+
+	/* process command line arguments */
+	if (argc < 2) {
+		printf("usage: %s <shares>\n", argv[0]);
+		printf("shares can be specified as follows:\n");
+		printf("/path/to/share=name - this share is read-only\n");
+		printf("-ro /path/to/share=name - this is also read-only\n");
+		printf("-rw /path/to/share=name - this is read-write\n");
+		printf("example: %s -ro /home/you/Public=public -rw /home/you/Incoming=Incoming\n", argv[0]);
+		exit(1);
+	}
+	for (int i = 1; i < argc; i++) {
+		char * path;
+		char * name;
+		int writable = 0;
+		if (!strcmp("-ro", argv[i])) {
+			if (++i < argc) path = argv[i];
+			else {
+				printf("missing share name for -ro\n");
+				exit(1);
+			}
+		} else if (!strcmp("-rw", argv[i])) {
+			writable = 1;
+			if (++i < argc) path = argv[i];
+			else {
+				printf("missing share name for -rw\n");
+				exit(1);
+			}
+		} else {
+			path = argv[i];
+		}
+		name = path;
+		while (*name && *name != '=') name++; /* find '=' */
+		if (!*name) {
+			printf("cannot find share name in string '%s'\n", path);
+			exit(1);
+		}
+		*name = 0; /* break into path/name pair */
+		name++;
+		if (!*name) {
+			printf("share name cannot be empty\n");
+			exit(1);
+		}
+		/* TODO check for invalid share names */
+
+		if (!share_add(name, path, writable)) {
+			printf("failed to add '%s' under name '%s'\n", path, name);
+		}
+	}
 
 	/* first, load up address structs with getaddrinfo(): */
 	memset(&hints, 0, sizeof(hints));

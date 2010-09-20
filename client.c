@@ -19,21 +19,22 @@
 #define MYPORT "5438"
 /* LIFT on a phone */
 
-void print_listing (struct data_packet data)
+void print_listing (char * data, int len)
 {
 	struct dir_entry entry;
 	int pos = 0;
-	while (pos < data.len) {
+	while (pos < len) {
 		char parms[3] = "---";
-		unpack(data.data + pos, FORMAT_dir_entry, &entry.len, &entry.name, &entry.type, &entry.perm, &entry.size);
+		unpack(data + pos, FORMAT_dir_entry, &entry.len, &entry.name, &entry.type, &entry.perm, &entry.size);
 		if (entry.type == ENTRY_DIR) parms[0] = 'd';
 		else if (entry.type == ENTRY_OTHER) parms[0] = '?';
 		if (entry.perm & PERM_READ) parms[1] = 'r';
 		if (entry.perm & PERM_WRITE) parms[2] = 'w';
 		printf("%.3s %.*s\t\t%llu\n", parms, entry.len, entry.name, entry.size);
 		pos += SIZEOF_dir_entry - sizeof(char *) + entry.len;
+		free(entry.name);
 	}
-	assert(pos == data.len);
+	assert(pos == len);
 }
 
 void do_assign (int sock, char * path, int handle)
@@ -52,10 +53,13 @@ void do_assign (int sock, char * path, int handle)
 void do_list (int sock, char * path)
 {
 	struct reply reply;
-	struct data_packet data;
-	do_assign(sock, path, 1);
+	char * data;
+	int len;
 	int id = 2;
 	int end = 0;
+
+	do_assign(sock, path, 1);
+
 	SAFE(send_command_p(sock, id, CMD_LIST, 1));
 	do {
 		SAFE(recv_reply(sock, &reply));
@@ -64,8 +68,13 @@ void do_list (int sock, char * path)
 			case STAT_OK:
 				end = 1;
 			case STAT_CONT:
-				SAFE(recv_data(sock, &data));
-				print_listing(data);
+				SAFE(recv_length(sock, &len));
+				if (len > 0) {
+					data = xmalloc(len);
+					SAFE(recv_full(sock, data, len));
+					print_listing(data, len);
+					free(data);
+				}
 				if (!end) SAFE(send_command_p(sock, ++id, CMD_LIST_CONT, 1));
 				break;
 			default:
@@ -78,12 +87,14 @@ void do_list (int sock, char * path)
 void do_get (int sock, char * path, char * target, int overwrite)
 {
 	struct reply reply;
-	struct data_packet data;
-	do_assign(sock, path, 1);
+	char * data;
+	int dlen;
 	int id = 2, rid = 1;
 	long ofs = 0;
 	int fd;
 	const int len = 65536;
+
+	do_assign(sock, path, 1);
 
 	/* TODO ensure that the file exists and is readable on server side
 	 before creating the local file */
@@ -111,11 +122,13 @@ void do_get (int sock, char * path, char * target, int overwrite)
 			fprintf(stderr, "read failed: %x\n", reply.status);
 			exit(1);
 		}
-		SAFE(recv_data(sock, &data));
-		if (data.len > 0) {
+		SAFE(recv_length(sock, &dlen));
+		if (dlen > 0) {
+			data = xmalloc(dlen);
+			SAFE(recv_full(sock, data, dlen));
 			int l = 0;
 			do {
-				int i = write(fd, data.data + l, data.len - l);
+				int i = write(fd, data + l, dlen - l);
 				if (i <= 0) {
 					if (errno == EINTR) continue;
 					else {
@@ -124,8 +137,8 @@ void do_get (int sock, char * path, char * target, int overwrite)
 					}
 				}
 				l += i;
-			} while (l < data.len);
-			free(data.data);
+			} while (l < dlen);
+			free(data);
 		} else {
 			close(fd);
 			break;
@@ -169,7 +182,7 @@ int main (int argc, char **argv)
 	}
 
 	recv_intro(sock, &intro);
-	fprintf(stderr, "server version %d, max %d handles, max %d chars per handle\n", intro.version, intro.maxhandles, intro.handlelen);
+	fprintf(stderr, "server version %d, max %d handles, max read of %d\n", intro.version, intro.maxhandles, intro.maxdata);
 	send_command_p(sock, 55, CMD_NOOP, 0);
 	recv_reply(sock, &reply);
 	fprintf(stderr, "server responds to ping!\n");

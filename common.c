@@ -166,8 +166,9 @@ int unpack (char * const buffer, char const * format, ...)
 
 int send_full (int sock, void *data, int len)
 {
+	assert(len > 0); /* because otherwise returns 0, which makes the caller think that connection dropped */
 	const char *buf = (const char *) data;
-	int total = 0
+	int total = 0;
 	while (total < len) {
 		int w = send(sock, buf + total, len - total, 0);
 		if (w < 0) {
@@ -184,6 +185,7 @@ int send_full (int sock, void *data, int len)
 
 int recv_full (int sock, void *data, int len)
 {
+	assert(len > 0); /* because otherwise returns 0, which makes the caller think that connection dropped */
 	char *buf = (char *) data;
 	int total = 0;
 	while (total < len) {

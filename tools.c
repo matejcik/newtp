@@ -23,3 +23,8 @@ void * xrealloc (void *ptr, size_t what)
 	return ptr;
 }
 
+char * strncpyz (char * dest, char const * src, size_t n)
+{
+	dest[n] = 0;
+	return strncpy(dest, src, n);
+}

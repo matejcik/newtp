@@ -32,7 +32,7 @@ struct reply {
 struct intro {
 	uint16_t	version;
 	uint16_t	maxhandles;
-	uint16_t	maxdata;
+	uint32_t	maxdata;
 };
 
 /* actual values */
