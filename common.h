@@ -17,6 +17,8 @@ int recv_full (int, void *, int);
 int send_data (int, void *, int);
 /* recv 32bit length */
 int recv_length (int, int *);
+/* send 32bit length */
+int send_length (int, int);
 
 #define SAFE(x) { \
 	int HANDLEret = x; \

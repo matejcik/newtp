@@ -149,6 +149,10 @@ void do_get (int sock, char * path, char * target, int overwrite)
 	}
 }
 
+void do_put (int sock, char * local, char * remote)
+{
+}
+
 int main (int argc, char **argv)
 {
 	struct addrinfo hints;
@@ -196,6 +200,14 @@ int main (int argc, char **argv)
 		target = path;
 		while (*c++) if (*c == '/') target = c + 1;
 		do_get(sock, path, target, 0);
+	} else if (!strcmp("put", command)) {
+		if (argc < 5) {
+			printf("usage: %s %s put <file> [file...] <path>\n", argv[0], argv[1]);
+			return 1;
+		}
+		for (int i = 3; i < argc - 1; i++) {
+			do_put(sock, argv[i], argv[argc-1]);
+		}
 	} else {
 		fprintf(stderr, "unknown command: %s\n", command);
 		exit(1);

@@ -1,4 +1,4 @@
-CFLAGS = -std=c99 -D_POSIX_C_SOURCE -O0 -g -Wall -pedantic
+CFLAGS = -std=c99 -D_POSIX_C_SOURCE=200112 -O0 -g -Wall -pedantic
 CC = gcc
 
 COMMON = common.o struct_helpers.o tools.o

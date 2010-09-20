@@ -202,9 +202,8 @@ int recv_full (int sock, void *data, int len)
 
 int send_data (int sock, void *data, int len)
 {
-	uint32_t tmp = htonl(len);
 	int ret;
-	if ((ret = send_full(sock, &tmp, sizeof(uint32_t))) <= 0) return ret;
+	if ((ret = send_length(sock, len)) <= 0) return ret;
 	if (len == 0) return 1;
 	if ((ret = send_full(sock, data, len) <= 0)) return ret;
 	return 1;
@@ -216,4 +215,10 @@ int recv_length (int sock, int * len)
 	int ret = recv_full(sock, &tmp, sizeof(uint32_t));
 	if (ret > 0) *len = ntohl(tmp);
 	return ret;
+}
+
+int send_length (int sock, int num)
+{
+	uint32_t tmp = htonl(num);
+	return send_full(sock, &tmp, sizeof(uint32_t));
 }
