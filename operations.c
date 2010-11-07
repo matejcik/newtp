@@ -57,6 +57,32 @@
 
 /***** directory listing functions *****/
 
+int fill_stat (char const * path, struct dir_entry * entry, int writable)
+{
+	/* caller is responsible for filling entry->name
+	and entry->len, they probably know better anyway */
+	struct stat st;
+	int ret;
+
+	ret = stat(path, &st);
+	if (ret == -1) { /* failed to stat */
+		entry->type = ENTRY_BAD;
+	} else {
+		if (S_ISREG(st.st_mode)) entry->type = ENTRY_FILE;
+		else if (S_ISDIR(st.st_mode)) entry->type = ENTRY_DIR;
+		else entry->type = ENTRY_OTHER;
+
+		if (entry->type == ENTRY_FILE) entry->size = st.st_size;
+		else entry->size = 0;
+
+		entry->perm = 0;
+		/* XXX more detailed check for access() failure? */
+		if (!access(path, R_OK | (entry->type == ENTRY_DIR ? X_OK : 0))) entry->perm |= PERM_READ;
+		if (writable && !access(path, W_OK)) entry->perm |= PERM_WRITE;
+	}
+	return ret;
+}
+
 int fill_entry (char const * directory, int dlen, struct dirent const * dirent, struct dir_entry * entry, int writable)
 {
 	char * path;
@@ -79,23 +105,9 @@ int fill_entry (char const * directory, int dlen, struct dirent const * dirent, 
 	strncpy(path, directory, dlen);
 	path[dlen] = '/';
 	strncpyz(path + dlen + 1, dirent->d_name, len);
+	
+	fill_stat(path, entry, writable);
 
-	ret = stat(path, &st);
-	if (ret == -1) {
-		entry->type = ENTRY_BAD;
-	} else {
-		if (S_ISREG(st.st_mode)) entry->type = ENTRY_FILE;
-		else if (S_ISDIR(st.st_mode)) entry->type = ENTRY_DIR;
-		else entry->type = ENTRY_OTHER;
-
-		if (entry->type == ENTRY_FILE) entry->size = st.st_size;
-		else entry->size = 0;
-
-		entry->perm = 0;
-		/* XXX more detailed check for access() failure? */
-		if (!access(path, R_OK | (entry->type == ENTRY_DIR ? X_OK : 0))) entry->perm |= PERM_READ;
-		if (writable && !access(path, W_OK)) entry->perm |= PERM_WRITE;
-	}
 	free(path);
 
 	return SIZEOF_dir_entry - sizeof(char*) + entry->len;
@@ -225,6 +237,20 @@ int cmd_list_cont (int sock, struct command *cmd)
 	h->dir = NULL;
 	logp("sent %d bytes", filled);
 	return filled;
+}
+
+int cmd_stat (int sock, struct command *cmd)
+{
+	struct handle * h;
+	struct dir_entry entry;
+	int err;
+
+	VALIDATE_HANDLE(h, sock, cmd);
+	logp("CMD_STAT %d (%s)",  cmd->handle, h->path);
+
+	err = fill_entry(h->path, &entry, h->writable);
+
+	MAYBE_RET(send_reply_p(sock, cmd->id, STAT_OK));
 }
 
 int cmd_read (int sock, struct command *cmd)
