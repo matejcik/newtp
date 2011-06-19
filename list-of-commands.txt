@@ -1,0 +1,163 @@
+00 CMD_PING
+- instant reply
+
+01 CMD_HELLO
+- welcome packet
+- from client:
+	* proto version
+	* requested host (for vhosting)
+- from server:
+	* proto version
+	* maximum file handles
+	* maximum open directories
+	* platform string
+	* hash of available extensions (so that client can cache it)
+
+02 CMD_ASSIGN
+- does not touch disk
+- validates path according to OS/FS rules
+
+03 CMD_STAT
+- parameter is array of attr indices, or empty array meaning all
+- returns attrs specified in parameter
+
+04 CMD_STATVFS
+- same as stat except for VFS properties such as free space
+
+#### operations on file ####
+
+04 CMD_SEEK_READ
+- seek, then read
+
+05 CMD_READ
+- read data
+- read requested length always, except:
+	* when at end
+	* on error
+- EOF is indicated by zero-length OK reply, implied on short OK reply
+
+06 CMD_SEEK_WRITE
+- seek then write
+- extend file transparently, create sparse if possible
+	* no change to file if write len is 0
+
+07 CMD_WRITE
+- write data
+- write fully, except on error
+- create if not exists
+
+08 CMD_APPEND
+- seek to end, then write
+
+09 CMD_TRUNCATE
+- set file size
+- can extend or shrink
+- create if not exists (it's "touch")
+
+##### operations on directory #####
+
+10 CMD_DELETE
+- remove file normally
+- remove empty directory normally
+- never follow symlinks
+
+11 CMD_RENAME
+- rename file/dir normally
+	* overwrite file->file, fail if *->dir
+- also never follow symlinks
+	* (XXX) change if relative?
+
+13 CMD_MAKEDIR
+- recursive
+- does not overwrite files
+
+14 CMD_READDIR_START
+- open handle then readdir
+
+15 CMD_READDIR
+- read bunch of entries in directory, up to max size
+- read at least one, if max size is too small
+- read zero if at end
+- format: list of {
+	uint16 entrylen
+	string name (without path, client must append)
+	items as specified by special handle
+	}
+- readdir handles can expire, there is a limited number of them
+	-> error if not started by _START, to discover the expired ones
+
+16 CMD_SETATTR
+- set specified attribute to specified value
+- attributes are from platform supported set and/or extensions
+- parameter: array of indices, array of values
+
+
+************* error codes ************
+
+E_BADCMD - unknown command
+E_BADVERSION - protocol version is not supported
+E_BADHANDLE - handle is outside acceptable range
+E_BADPATH - path is unacceptable for underlying OS/FS
+
+E_DENIED - access rights violation
+E_BUSY - resource is occupied, try again later
+E_IO - I/O error on server
+
+E_NOTFOUND
+	- resource under current handle does not exist
+	- path component is not a directory
+E_NOTDIR - directory operation attempted on non-directory
+E_NOTFILE - file operation attempted on directory
+
+E_BADSEEK
+	- seek on a position that is invalid in underlying os/fs
+	- underlying resource is unseekable
+E_TOOBIG
+	- file or filesystem size limit reached
+E_DEVFULL
+	- filesystem is full
+
+E_NOTEMPTY - attempting to delete a non-empty directory
+E_BADMOVE - directory move would result in a path loop
+E_XDEV - move crossing filesystem boundary
+
+E_SERVFAIL - sudden death
+
+
+************* extensions *************
+
+- platform-specific attributes - implicit in "platform" string
+	-> platform can be "generic" for only base set for minimal servers
+	CMD_LINK (sym) (linkto) creates a link out of current handle
+		- only within server tree, so ->/etc/passwd points to serverroot/etc/passwd
+
+- async-ops
+	equivalents of all, plus:
+	- recursive delete
+	- cross-fs move
+	- copy
+	CMD_(operation) returns handle
+	CMD_OPSTATUS checks progress /how exactly?/
+	CMD_ABORT
+
+- auth-required, auth-optional
+- auth-method-(supported-methods)
+	* new command: CMD_AUTH (method) (seq) (...), then method-specific conversation
+	plain: CMD_AUTH plain 0 username password
+	pubkey: CMD_AUTH pubkey 0
+	chresp:
+		-> CMD_AUTH (type) 0 username
+		<- challenge
+		-> CMD_AUTH (type) 1 response
+	PAM:
+		-> CMD_AUTH pam 0 username
+		<- server prompt
+		-> CMD_AUTH pam 1 response
+		<- next prompt
+		-> CMD_AUTH pam 2... response
+		(...)
+		(TODO) is seq enough for PAM?
+	Kerberos: (TODO)
+	* (XXX) use seq at all ?
+		- pro: prevents broken sequences, BUT can that happen?
+		- con: we don't want people to reset auth at will BUT is that likely?
