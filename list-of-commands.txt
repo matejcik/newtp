@@ -1,82 +1,101 @@
-00 CMD_PING
-- instant reply
+************** special handles ****************
 
-01 CMD_HELLO
-- welcome packet
-- from client:
+- supported extensions: list of id-string pairs
+
+- supported attributes: list of id-string pairs
+	first a generic set
+	then platform set
+	then whatever extensions add
+
+- preferred attributes for directory listing
+	list of ids
+	writable
+	default: generic set + platform preferred set
+
+************** list of core commands ***************
+
+CMD_PING
+- instant OK reply - for sanity-checking, keepalive etc.
+
+CMD_HELLO
+- welcome packet - must be sent before everything except PING
+- parameters from client:
 	* proto version
 	* requested host (for vhosting)
-- from server:
+- reply from server:
 	* proto version
 	* maximum file handles
 	* maximum open directories
 	* platform string
 	* hash of available extensions (so that client can cache it)
 
-02 CMD_ASSIGN
+CMD_ASSIGN
+- assign a path to handle
 - does not touch disk
-- validates path according to OS/FS rules
+- sanity-checks and validates path according to OS/FS rules
 
-03 CMD_STAT
-- parameter is array of attr indices, or empty array meaning all
+CMD_STAT
+- parameter is array of attr indices
 - returns attrs specified in parameter
 
-04 CMD_STATVFS
+CMD_STATVFS
 - same as stat except for VFS properties such as free space
+- returns attrs specified in parameter
 
 #### operations on file ####
 
-04 CMD_SEEK_READ
+CMD_SEEK_READ
 - seek, then read
 
-05 CMD_READ
+CMD_READ
 - read data
 - read requested length always, except:
 	* when at end
 	* on error
-- EOF is indicated by zero-length OK reply, implied on short OK reply
+- EOF is indicated by zero-length OK reply, can be implied on short OK reply
 
-06 CMD_SEEK_WRITE
+CMD_SEEK_WRITE
 - seek then write
 - extend file transparently, create sparse if possible
 	* no change to file if write len is 0
 
-07 CMD_WRITE
+CMD_WRITE
 - write data
 - write fully, except on error
 - create if not exists
 
-08 CMD_APPEND
+CMD_APPEND
 - seek to end, then write
 
-09 CMD_TRUNCATE
+CMD_TRUNCATE
 - set file size
 - can extend or shrink
 - create if not exists (it's "touch")
 
 ##### operations on directory #####
 
-10 CMD_DELETE
+CMD_DELETE
 - remove file normally
 - remove empty directory normally
 - never follow symlinks
 
-11 CMD_RENAME
+CMD_RENAME
 - rename file/dir normally
 	* overwrite file->file, fail if *->dir
+- create path if possible (implicit mkdir -p)
 - also never follow symlinks
-	* (XXX) change if relative?
+	* (XXX) change symlink path if relative?
 
-13 CMD_MAKEDIR
-- recursive
+CMD_MAKEDIR
+- recursive (as mkdir -p)
 - does not overwrite files
 
-14 CMD_READDIR_START
+CMD_READDIR_START
 - open handle then readdir
 
-15 CMD_READDIR
+CMD_READDIR
 - read bunch of entries in directory, up to max size
-- read at least one, if max size is too small
+- read at least one if max size is too small
 - read zero if at end
 - format: list of {
 	uint16 entrylen
@@ -86,10 +105,11 @@
 - readdir handles can expire, there is a limited number of them
 	-> error if not started by _START, to discover the expired ones
 
-16 CMD_SETATTR
+CMD_SETATTR
 - set specified attribute to specified value
 - attributes are from platform supported set and/or extensions
 - parameter: array of indices, array of values
+	* returns
 
 
 ************* error codes ************
@@ -105,31 +125,59 @@ E_IO - I/O error on server
 
 E_NOTFOUND
 	- resource under current handle does not exist
-	- path component is not a directory
+	- path component is not a directory (when creating files)
 E_NOTDIR - directory operation attempted on non-directory
 E_NOTFILE - file operation attempted on directory
 
 E_BADSEEK
 	- seek on a position that is invalid in underlying os/fs
-	- underlying resource is unseekable
+	- resource is unseekable
 E_TOOBIG
 	- file or filesystem size limit reached
 E_DEVFULL
 	- filesystem is full
 
 E_NOTEMPTY - attempting to delete a non-empty directory
-E_BADMOVE - directory move would result in a path loop
+E_BADMOVE
+	- directory move would result in a path loop
+	- overwriting file with a directory
+	- component of new path is file
 E_XDEV - move crossing filesystem boundary
+E_READDIR - CMD_READDIR without CMD_READDIR_START
 
 E_SERVFAIL - sudden death
 
 
+************* platforms **************
+
+*** "generic":
+- attributes:
+	* type (file/directory/special)
+	* permissions (read/write)
+	* size (file size, zero for directory)
+	* last modification time
+- vfs attributes:
+	* total disk size
+	* free space
+
+*** "posix":
+- attributes: whatever stat() gives
+- vfs attrs: whatever statvfs() gives
+
+*** "windows":
+TODO	
+
+
 ************* extensions *************
 
-- platform-specific attributes - implicit in "platform" string
-	-> platform can be "generic" for only base set for minimal servers
-	CMD_LINK (sym) (linkto) creates a link out of current handle
-		- only within server tree, so ->/etc/passwd points to serverroot/etc/passwd
+- auth-required, auth-optional
+	* use SASL for authentication
+	  (but not security layers, we have TLS for that)
+	* extension "auth-methods LIST OF MECHS"
+	  (to feed into Cyrus SASL easily)
+	* EXTERNAL mechanism uses TLS's client cert
+	* new command CMD_AUTH mirrors SASL's conversation
+	* support for PLAIN mechanism must be built-in
 
 - async-ops
 	equivalents of all, plus:
@@ -137,27 +185,6 @@ E_SERVFAIL - sudden death
 	- cross-fs move
 	- copy
 	CMD_(operation) returns handle
-	CMD_OPSTATUS checks progress /how exactly?/
+	CMD_OPSTATUS checks progress /TODO how exactly?/
 	CMD_ABORT
 
-- auth-required, auth-optional
-- auth-method-(supported-methods)
-	* new command: CMD_AUTH (method) (seq) (...), then method-specific conversation
-	plain: CMD_AUTH plain 0 username password
-	pubkey: CMD_AUTH pubkey 0
-	chresp:
-		-> CMD_AUTH (type) 0 username
-		<- challenge
-		-> CMD_AUTH (type) 1 response
-	PAM:
-		-> CMD_AUTH pam 0 username
-		<- server prompt
-		-> CMD_AUTH pam 1 response
-		<- next prompt
-		-> CMD_AUTH pam 2... response
-		(...)
-		(TODO) is seq enough for PAM?
-	Kerberos: (TODO)
-	* (XXX) use seq at all ?
-		- pro: prevents broken sequences, BUT can that happen?
-		- con: we don't want people to reset auth at will BUT is that likely?
