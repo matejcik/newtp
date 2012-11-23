@@ -7,3 +7,10 @@ client
 */build
 */dist
 old
+*.aux
+*.dvi
+*.pdf
+*.log
+*.out
+*.ps
+*.toc
