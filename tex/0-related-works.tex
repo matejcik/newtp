@@ -1,0 +1,32 @@
+\chapter{Related works}
+
+This chapter examines several popular existing protocols and general characteristics
+of their implementations.
+
+\section{FTP}
+
+FTP, the File Transfer Protocol, is one of the oldest network protocols for file transfer, and probably the
+oldest that is still widely used. It was first introduced in~1973 as RFC~454~\cite{rfc454} and the most recent
+accepted standard is RFC~959~\cite{rfc959} from~1985. Several proposed extensions were published, mostly
+describing how the standard has evolved in practical use.
+
+With FTP, the client establishes a text-based, line-oriented control connection to the server. Through this
+the user can configure session parameters, traverse and list directories and manipulate directory entries,
+similar to an interactive shell. Many commands are designed for human use, e.g. the HELP command, or the LIST
+command that lists contents of the current directory in a platform-dependent textual format. Actual file
+transfers run on separate data connections which are negotiated on the control connection. This means that in
+order to support FTP transparently, firewalls and NATs must understand the FTP protocol.
+
+Users authenticate themselves with user name, password and optionally an account name. The protocol specifies
+no encryption, so this information is transferred in plain text. RFC~4217~\cite{rfc4217} specifies a variant
+of FTP that uses TLS for encryption
+
+\section{WebDAV}
+
+\section{SMB/CIFS}
+
+\section{NFS}
+
+\section{SFTP --- SSH File Transfer Protocol}
+
+\section{Others}
