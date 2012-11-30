@@ -7,8 +7,8 @@ of their implementations.
 
 FTP, the File Transfer Protocol, is one of the oldest network protocols for file transfer, and probably the
 oldest that is still widely used. It was first introduced in~1973 as RFC~454~\cite{rfc454} and the most recent
-accepted standard is RFC~959~\cite{rfc959} from~1985. Several proposed extensions were published, mostly
-describing how the standard has evolved in practical use.
+accepted standard is RFC~959~\cite{rfc959} from~1985. Several proposed extensions were published after that,
+mostly describing how the standard has evolved in practical use.
 
 With FTP, the client establishes a text-based, line-oriented control connection to the server. Through this
 the user can configure session parameters, traverse and list directories and manipulate directory entries,
@@ -18,12 +18,63 @@ transfers run on separate data connections which are negotiated on the control c
 order to support FTP transparently, firewalls and NATs must understand the FTP protocol.
 
 Users authenticate themselves with user name, password and optionally an account name. The protocol specifies
-no encryption, so this information is transferred in plain text. RFC~4217~\cite{rfc4217} specifies a variant
-of FTP that uses TLS for encryption
+no encryption, so all information is transferred in plain text. RFC~4217~\cite{rfc4217} specifies a variant of
+FTP that uses TLS for encryption. However, this makes FTP traffic opaque, so special care must be taken when
+firewalls or NATs are involved.
 
-\section{WebDAV}
+\section{HTTP}
+
+Mentioned mostly for completeness, HTTP (Hyper-Text Transfer Protocol) is at its core a protocol for
+retrieving files from remote servers. Although it has limited capabilities for creating, updating and deleting
+content, those are usually used in application-specific manner and not for general file manipulation. It
+doesn't support directory manipulation at all. Current HTTP specification is described by
+RFC~2616~\cite{rfc2616} from~1999.
+
+HTTP is text-based. Each client request specifies a method (one of GET, PUT, POST or DELETE) and an URL on the
+first line, followed by any number of headers, one per line.  Headers can specify content metadata,
+instructions for proxies, client expectations etc. The headers section can be followed by a body containing
+arbitrary data. Similarly, server response starts with a numeric response code, followed by headers and data
+payload.
+
+The protocol is fully stateless and has no concept of sessions beyond single request/response exchanges,
+although it allows reusing a single TCP connection as an optimization.  RFC~2069~\cite{rfc2069} specifies a
+simplistic authentication model, based on username/password combinations. RFC~2818~\cite{rfc2818} describes
+how to use the protocol with TLS, which is commonly known as HTTPS.
+
+\subsection{WebDAV}
+
+WebDAV (Web Distributed Authoring and Versioning) protocol is an extension of HTTP, designed to provide the
+World-Wide Web network with standardized authoring capabilities. It was first specified in~1999 as
+RFC~2518~\cite{rfc2518}, with RFC~4918~\cite{rfc4918} from 2007 being the latest published specification.
+As~of~2012, WebDAV and its extensions are actively maintained by several IETF working groups.
+
+WebDAV specifies several new methods that add directory manipulation and locking functionality, as well as
+corresponding headers and XML-based formats of data payloads. It also specifies detailed semantics for file
+and directory operations. Despite its name, versioning is not part of WebDAV's core functionality - it is
+specified as an extension~\cite{rfc3253}.
+
+WebDAV does not modify the way HTTP operates, so it is still stateless with no session support. It uses HTTP's
+authentication models and it can run under HTTPS encryption mode. It is also backwards-compatible with
+HTTP-only proxies. Depending on the nature of the proxy, WebDAV traffic can either pass through unchanged, or
+a failure is detected and doesn't endanger consistency of server state.
+
+The whole of WebDAV's functionality is relatively complex: it concerns itself with things like authorship,
+conflict resolution, locking policies, content properties and metadata etc. Also, it is designed to run on
+WWW, which means that it has to handle unique URLs, many users, anonymous vs. authorized access, proxying, i
+could go on. We don't really care about any of that. So while client implementations can be relatively simple
+(this is even a requirement of the original WebDAV proposal), servers tend to be complicated.
+
+WebDAV is natively supported in most modern OSes, but due to the complexity, implementations tend to be
+slightly incompatible.
 
 \section{SMB/CIFS}
+
+Server Message Block was designed in ancient times by arcane wizards of Microsoft for use in their desktop
+operating system, Windows. Unlike the previous protocols, it doesn't require TCP/IP. It can either run
+directly over TCP, or on top of a custom underlying API called NetBIOS. This was created because at that time,
+TCP/IP networks were not really common. NetBIOS can run directly on physical layer, on IPX/SPX or on TCP/IP.
+
+SMB is mainly aimed at small local networks
 
 \section{NFS}
 
