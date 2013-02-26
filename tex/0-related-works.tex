@@ -46,7 +46,7 @@ how to use the protocol with TLS, which is commonly known as HTTPS.
 WebDAV (Web Distributed Authoring and Versioning) protocol is an extension of HTTP, designed to provide the
 World-Wide Web network with standardized authoring capabilities. It was first specified in~1999 as
 RFC~2518~\cite{rfc2518}, with RFC~4918~\cite{rfc4918} from 2007 being the latest published specification.
-As~of~2012, WebDAV and its extensions are actively maintained by several IETF working groups.
+As~of~2013, WebDAV and its extensions are actively maintained by several IETF working groups.
 
 WebDAV specifies several new methods that add directory manipulation and locking functionality, as well as
 corresponding headers and XML-based formats of data payloads. It also specifies detailed semantics for file
@@ -60,21 +60,30 @@ a failure is detected and doesn't endanger consistency of server state.
 
 The whole of WebDAV's functionality is relatively complex: it concerns itself with things like authorship,
 conflict resolution, locking policies, content properties and metadata etc. Also, it is designed to run on
-WWW, which means that it has to handle unique URLs, many users, anonymous vs. authorized access, proxying, i
-could go on. We don't really care about any of that. So while client implementations can be relatively simple
-(this is even a requirement of the original WebDAV proposal), servers tend to be complicated.
+WWW, which means that it has to care about unique URLs, many users, anonymous vs. authorized access, proxying
+and so on. So while client implementations can be relatively simple (this is even a requirement of the original
+WebDAV proposal), servers tend to be complicated.
 
 WebDAV is natively supported in most modern OSes, but due to the complexity, implementations tend to be
 slightly incompatible.
 
-\section{SMB/CIFS}
+\section{SMB}
 
-Server Message Block was designed in ancient times by arcane wizards of Microsoft for use in their desktop
-operating system, Windows. Unlike the previous protocols, it doesn't require TCP/IP. It can either run
-directly over TCP, or on top of a custom underlying API called NetBIOS. This was created because at that time,
-TCP/IP networks were not really common. NetBIOS can run directly on physical layer, on IPX/SPX or on TCP/IP.
+Server Message Block is an evolution of a proprietary networking protocol designed at IBM around the year
+1985. Originally using NetBIOS API to abstract away the transport layer, its current version usually runs
+directly on TCP/IP.  The most recent version is SMB 3.0, which first appeared in 2012 with Windows 8 and is
+actively maintained by Microsoft. It is specified in~\cite{MS-SMB2} as part of Microsoft's Open Specifications
+initiative.
 
-SMB is mainly aimed at small local networks
+SMB was originally designed as an all-encompasing networking protocol for small local networks. Apart from
+publishing parts of directory trees, it allows sharing printers, ports and even some IPC mechanisms. The
+NetBIOS API allows service discovery, but these days this capability is mostly superseded by use of
+Dynamic~DNS. SMB is often used as a filesystem, e.g. for storing user profile data on a central server, its
+directory access features are filesystem-like and commands roughly correspond to filesystem access primitives.
+
+The protocol is binary. It specifies a packet format and a number of commands, their arguments and responses.
+Since SMB 2.0, GSS-API is used for user authentication. Support for digitally-signed communications existed in
+older versions of the protocol, and version 3.0 enhances that with full encryption support.
 
 \section{NFS}
 
