@@ -1,0 +1,88 @@
+co to je file transfer
+* existuje něco jako adresáře a soubory - na tom se současné platformy dost shodují
+* na různých počítačích zpravidla různé
+* chceme, aby jeden počítač viděl na druhý a mohl si z něho přenášet věci k sobě a tak podobně
+
+úvod do problematiky - co to je protokol
+protokol popisuje nějakej scénář, podle kterého se spolu dva (a více) počítačů baví po síti
+* např. může jeden posílat naslepo pakety do kamsi a doufat že si je tam někdo chytí
+	* i takhle lze posílat soubory
+* nebo spolu navážou nějakou “session”, ve které si ujasní, kdo je kdo na druhé straně a že série packetů/komunikace patří k sobě
+	* což lze udělat na úrovni protokolu explicitní domluvou
+	* nebo spoléhat na to, že mi to zajistí transportní vrstva (tcp/ip)
+		což udělám já a dělá to většina protokolů který popisuju
+* struktura protokolu
+	* textová - jsou to lidmi čitelné texty (typicky v ascii dneska)
+		* proč:
+			* jednak se to dobře debuguje (a je to vůbec člověku srozumitelné)
+			* a jednak když se ještě moc nerozumělo tomu, jak udělat interoperabilitu mezi systémy, tak byl text takový docela slušný společný médium
+		* obvykle line-oriented, co řádka to zpráva
+			* to se čte ze všech možností nejlíp a je to takové přirozené
+				- historická poznámka: spousta protokolů šla/jde ovládat telnetem jako terminál, kde samozřejmě odesíláme řádky enterem
+	* binární - jsou to nějaká data napackovaná přímo za sebe
+		* typicky by se popsaly třeba Cčkovým structem
+		* je to rychlejší na zpracování počítačem
+		* a efektivnější na velikost
+			* ale člověk to nepřečte bez nějakého pokročilého nástroje
+* role v protokolu
+	* client -> to je ten, kterej říká požadavky
+	* server -> ten, který čeká a požadavky plní
+	* typicky client-server - klient je jednoznačně identifikovanej, navazuje spojení, server tam sedí a plní požadavky
+	(* může být peer-to-peer - účastníci se chovají jako klienti a servery najednou)
+	* nás zajímá hlavně to, kdo je v které situaci klient a kdo server
+
+*** KONVENCE: na serveru je "master kopie" souborů, které nás zajímají a ke kterým se klient chce dostat
+
+jaké operace by měl zvládat filetransferový protokol?
+	* čtení souborů - samozřejmě, to je takový to nejzákladnější
+		* celej soubor?
+		* nebo nějaká vybraná část?
+		* je to neprůhledný data-payload, nebo rozumíme struktuře a něco s ní děláme?
+	* zápis - totéž naopak
+		* konkurentní přístup - můžou nastat konflikty, co s nimi
+	* práce s adresáři
+		* je tam vůbec adresářová struktura?
+		* musíme ji nějak procházet
+		* jména souborů, přejmenování
+			* pár slov o délce cesty, délce jména, povolených znacích
+			* kódování znaků
+				* podpora špatně nakódovaných jmen
+			* přesouvání? - to je potenciálně složitá operace
+			* on-server kopírování taktéž
+		* vytváření a mazání adresářů
+			* mazání adresáře - prázdný, neprázdný
+		* vůbec sémantika složitých operací
+		* jak moc podrobně se klient dozví o struktuře serveru?
+			* volné místo
+			* různá fyzická úložiště
+			* symlinky, hardlinky
+	* metadata
+		* ACLs, extended attributes
+			* obvykle se nepoužívají
+			* nemusí být kompatibilní se systémy na některé straně
+	* podepisování, kontroly integrity
+		* delty? nebo to si vyřeší aplikace?
+	* zamykání
+		* do toho se moc pouštět nechci, takže jen zmínit že to existuje?
+
+související vlastnosti
+	* autentizace, autorizace 
+		* uživatelská práva, přístup k souborům apod.
+		* ověření autority klienta/serveru
+	* bezpečnost přenosu
+		* šifrování dat
+		* MitM ochrana
+	* odolnost proti (DoS a dalším) útokům
+		* protokol by neměl dovolit nic moc navíc, co neudělá sama aplikace.....
+		* čím jednodušší, tím lepší
+	* rychlost
+		* latence, interleaving operací, dlouho-běžící operace
+		* overhead protokolu proti přenášeným datům
+	* stavovost
+		* jak velký problém je výpadek klienta? serveru? spojení?
+
+a teď můžu o každém zkoumaném protokolu napsat velmi stručně jak se chová, a vypíchnout jestli řeší zajímavým
+(či obzvláště debilním) způsobem nějakou z těchto oblastí
+
+chci do úvodu k protokolům napsat, že to je přehled jenom těch zajímavých a v současnosti používaných, a že existuje
+milion dalších s drobnými odchylkami a specializacemi a blabla, ale ty nebudeme řešit.

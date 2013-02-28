@@ -3,6 +3,8 @@
 This chapter examines several popular existing protocols and general characteristics
 of their implementations.
 
+TODO tcp/udp/whatever
+
 \section{FTP}
 
 FTP, the File Transfer Protocol, is one of the oldest network protocols for file transfer, and probably the
@@ -10,12 +12,14 @@ oldest that is still widely used. It was first introduced in~1973 as RFC~454~\ci
 accepted standard is RFC~959~\cite{rfc959} from~1985. Several proposed extensions were published after that,
 mostly describing how the standard has evolved in practical use.
 
-With FTP, the client establishes a text-based, line-oriented control connection to the server. Through this
+With FTP, the client establishes a text-based, line-oriented {\it control} connection to the server. Through this
 the user can configure session parameters, traverse and list directories and manipulate directory entries,
 similar to an interactive shell. Many commands are designed for human use, e.g. the HELP command, or the LIST
 command that lists contents of the current directory in a platform-dependent textual format. Actual file
-transfers run on separate data connections which are negotiated on the control connection. This means that in
-order to support FTP transparently, firewalls and NATs must understand the FTP protocol.
+transfers run on separate {\it data} connections which are negotiated on the control connection. This means that
+in order to support FTP transparently, firewalls and NATs must understand the FTP protocol.
+
+TODO zmínit že řeší spoustu nepodstatných kravin
 
 Users authenticate themselves with user name, password and optionally an account name. The protocol specifies
 no encryption, so all information is transferred in plain text. RFC~4217~\cite{rfc4217} specifies a variant of
@@ -72,7 +76,7 @@ slightly incompatible.
 Server Message Block is an evolution of a proprietary networking protocol designed at IBM around the year
 1985. Originally using NetBIOS API to abstract away the transport layer, its current version usually runs
 directly on TCP/IP.  The most recent version is SMB 3.0, which first appeared in 2012 with Windows 8 and is
-actively maintained by Microsoft. It is specified in~\cite{MS-SMB2} as part of Microsoft's Open Specifications
+actively maintained by Microsoft. It is specified in~\cite{mssmb2} as part of Microsoft's Open Specifications
 initiative.
 
 SMB was originally designed as an all-encompasing networking protocol for small local networks. Apart from
