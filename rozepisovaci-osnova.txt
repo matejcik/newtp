@@ -20,7 +20,7 @@ protokol popisuje nějakej scénář, podle kterého se spolu dva (a více) poč
 			* to se čte ze všech možností nejlíp a je to takové přirozené
 				- historická poznámka: spousta protokolů šla/jde ovládat telnetem jako terminál, kde samozřejmě odesíláme řádky enterem
 	* binární - jsou to nějaká data napackovaná přímo za sebe
-		* typicky by se popsaly třeba Cčkovým structem
+		* typicky by se popsaly třeba Cčkovým structem (ale není to Cčkový struct!)
 		* je to rychlejší na zpracování počítačem
 		* a efektivnější na velikost
 			* ale člověk to nepřečte bez nějakého pokročilého nástroje
@@ -30,6 +30,7 @@ protokol popisuje nějakej scénář, podle kterého se spolu dva (a více) poč
 	* typicky client-server - klient je jednoznačně identifikovanej, navazuje spojení, server tam sedí a plní požadavky
 	(* může být peer-to-peer - účastníci se chovají jako klienti a servery najednou)
 	* nás zajímá hlavně to, kdo je v které situaci klient a kdo server
+		(!!)
 
 *** KONVENCE: na serveru je "master kopie" souborů, které nás zajímají a ke kterým se klient chce dostat
 
@@ -47,10 +48,15 @@ jaké operace by měl zvládat filetransferový protokol?
 			* pár slov o délce cesty, délce jména, povolených znacích
 			* kódování znaků
 				* podpora špatně nakódovaných jmen
+				* utf private ranges?
+			* vytvoření souboru nezaručuje že se objeví ve výpisu
+				* např. OSX dělá normalizaci jména
+				* náš protokol to nechá na OSu - tedy zadané jméno se může změnit
 			* přesouvání? - to je potenciálně složitá operace
 			* on-server kopírování taktéž
 		* vytváření a mazání adresářů
 			* mazání adresáře - prázdný, neprázdný
+			* idempotence vytváření
 		* vůbec sémantika složitých operací
 		* jak moc podrobně se klient dozví o struktuře serveru?
 			* volné místo
@@ -80,9 +86,29 @@ související vlastnosti
 		* overhead protokolu proti přenášeným datům
 	* stavovost
 		* jak velký problém je výpadek klienta? serveru? spojení?
+	* pojďme se bavit o idempotenci operací
+		* většina je idempotentní sama od sebe
+		* zajímavé je zejména vytváření adresářů
+			(něco dalšího?)
+			které se leckdy používá k zamykání
+		* jak to dodržet při pádu serveru?
+			* rozepsat detailně
+			- nechat na klientovi ať si to pořeší
+			- rozlišit return kódem "ok vyrobil jsem", "nevyrobil jsem" a "ok už tam byl"
+			- server si musí pamatovat co který klient udělal
+			  i po odpojení
+			- všechny způsoby jsou špatně
+	* sémantika cachování
+		* mám předepsat, jak se mají klienti chovat?
+			- prozkoumat nfs4 v tomhle směru
 
 a teď můžu o každém zkoumaném protokolu napsat velmi stručně jak se chová, a vypíchnout jestli řeší zajímavým
 (či obzvláště debilním) způsobem nějakou z těchto oblastí
 
 chci do úvodu k protokolům napsat, že to je přehled jenom těch zajímavých a v současnosti používaných, a že existuje
 milion dalších s drobnými odchylkami a specializacemi a blabla, ale ty nebudeme řešit.
+
+rozebrat NFS 3 vs NFS 4
+zmínit existenci rsync protokolu
+
+zvážit extensionku s operacemi INSERT a DELETE a vůbec podporou delta-přenosů
