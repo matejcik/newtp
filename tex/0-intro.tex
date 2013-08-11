@@ -1,0 +1,33 @@
+% vim: set tw=110 fo=an1lt
+
+\chapter{Problem Definition}
+
+In this chapter, we present an overview of the problem area and a description of what exactly we are solving.
+It should also serve as an introduction for readers unfamiliar with the topic, providing explanations of terms
+that we are using throughout this work.
+
+\section{File Transfer}
+
+Most modern operating systems share a common idea of what constitutes a filesystem. It is a collection of {\it
+files} that are referenced through a hierarchical tree-like structure of {\it directories}. You can identify
+any file or directory by its {\it path}, which is a string of entry names delimited by path separator
+characters\footnotemark[1].  You follow the path by starting at the root directory\footnotemark[2] and always
+descending into the diretory named by the next path element, until the last element is remaining, naming the
+target entry.
+
+We want to be able to publish one or more subtrees of the filesystem on one computer, and access this part of
+the structure from another computer over a network.
+
+\section{Protocols}
+
+The most basic "protocol" imaginable is one computer just firing data packets at another, silently hoping that
+the other will reassemble and understand them. We could, in theory, use this sort of protocol for transferring
+files, but it is obviously very impractical.
+
+
+
+\footnotetext[1]{On UNIX-like systems, the path separator is a forward-slash, '/'. Windows recognizes both
+forward-slash and a backslash, but backslash is used more commonly. Nevertheless, we will be using
+forward-slash as a path separator everywhere.}
+
+\footnotetext[2]{This is a so-called {\it absolute} path, usually denoted by a leading path separator.}
