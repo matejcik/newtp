@@ -7,14 +7,14 @@ It should also serve as an introduction for readers unfamiliar with the topic, p
 that we are using throughout this work.
 
 
-\section{File Transfer}
+\section{Files and filesystems}
 
 Most modern operating systems share a common idea of what constitutes a filesystem. It is a collection of {\it
-files} that are referenced through a hierarchical tree-like structure of {\it directories}. You can identify
-any file or directory by its {\it path}, which is a string of entry names delimited by path separator
-characters\footnotemark[1]. You follow the (absolute) path by starting at the root directory and always
-descending into the directory named by the next path element, until the last element is remaining, naming the
-target entry.
+files}, which are opaque strings of binary data. Individual files are referenced through a hierarchical
+tree-like structure of {\it directories}.  You can identify any file or directory by its {\it path}, which is
+a string of entry names delimited by path separator characters\footnotemark[1]. You follow the (absolute) path
+by starting at the root directory and always descending into the directory named by the next path element,
+until the last element is remaining, naming the target entry.
 
 We want to be able to publish one or more subtrees of the filesystem on one computer, and access this part of
 the structure from another computer over a network.
