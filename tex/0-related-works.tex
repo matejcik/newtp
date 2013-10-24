@@ -1,3 +1,5 @@
+% vim: tw=110:fo=an1lt
+
 \chapter{Related works}
 
 This chapter examines several popular existing protocols and general characteristics
@@ -50,7 +52,7 @@ how to use the protocol with TLS, which is commonly known as HTTPS.
 WebDAV (Web Distributed Authoring and Versioning) protocol is an extension of HTTP, designed to provide the
 World-Wide Web network with standardized authoring capabilities. It was first specified in~1999 as
 RFC~2518~\cite{rfc2518}, with RFC~4918~\cite{rfc4918} from 2007 being the latest published specification.
-As~of~2013, WebDAV and its extensions are actively maintained by several IETF working groups.
+As~of~2013, WebDAV and its extensions are actively maintained by a number of IETF working groups.
 
 WebDAV specifies several new methods that add directory manipulation and locking functionality, as well as
 corresponding headers and XML-based formats of data payloads. It also specifies detailed semantics for file
@@ -62,11 +64,11 @@ authentication models and it can run under HTTPS encryption mode. It is also bac
 HTTP-only proxies. Depending on the nature of the proxy, WebDAV traffic can either pass through unchanged, or
 a failure is detected and doesn't endanger consistency of server state.
 
-The whole of WebDAV's functionality is relatively complex: it concerns itself with things like authorship,
+The whole of WebDAV's functionality is relatively complex: it concerns itself with issues like authorship,
 conflict resolution, locking policies, content properties and metadata etc. Also, it is designed to run on
 WWW, which means that it has to care about unique URLs, many users, anonymous vs. authorized access, proxying
-and so on. So while client implementations can be relatively simple (this is even a requirement of the original
-WebDAV proposal), servers tend to be complicated.
+and so on.  So while client implementations can be relatively simple (this is even a requirement of the
+original WebDAV proposal), servers tend to be complicated.
 
 WebDAV is natively supported in most modern OSes, but due to the complexity, implementations tend to be
 slightly incompatible.
