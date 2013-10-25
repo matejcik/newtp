@@ -112,3 +112,37 @@ rozebrat NFS 3 vs NFS 4
 zmínit existenci rsync protokolu
 
 zvážit extensionku s operacemi INSERT a DELETE a vůbec podporou delta-přenosů
+
+
+---- shrnutí od Kláry
+
+1 Introduction
+
+2 Problem Definition
+ - uvodni reci, ze si ted zadefinujeme pojmy a rekneme, co chceme  vlastne delat
+ 2.1 co je filetransfer
+ 2.2 co je protokol
+ 2.3 co by asi tak měl filetransferový protokol dělat
+ 2.4 sémantika operací
+ 2.5 dalsi souvisejici vlastnosti
+
+3 Related Works
+ - jednotlive related works
+ - dalsi
+
+4 Protocol Design
+ - ted prijde ta nejdulezitejsi cast, to jsem vymyslel uplne 
+ 4.1 Design TradeOffs - pro můj protokol jsem chtěl mít nějaký základní  předpoklady tyhle, tyhle a tyhle. proto jsem zvolil tyhle, tyhle a tyhle  možnosti
+ 4.2 zakladni pojmy protokolu - vyjmenuju s jakýma jednotkama v tom  protokolu pracuju
+ 4.3 komunikacni schema - a tam bude něco jako že počítače si mezi sebou  budou povídat takhle a takhle, a je v tom následující logika
+ 4.4 example session
+ 4.5 seznam prikazu - mohl bych to udělat něco jako že to bude  netechnickej popis. vyjmenuju ty příkazy za sebou ve skupinkách a o  každý skupince řeknu co asi tak rámcově umí
+ 4.6 extensions - základní popis extension mechanismu a jak si  představuju kompatibilitu dopředu a dozadu
+
+5 Implementation
+ 5.1 Server
+ 5.2 Client
+
+6 Conclusion & Future Work
+ - v praci jsem popsali vlastni protokol ktery je skvely uplne nejvic a  ten nas navrh krasne funguje, coz jsme dokazali implementaci, a jeste se  na tom da vylepsit to a to
+ - dalsich deset extensions
