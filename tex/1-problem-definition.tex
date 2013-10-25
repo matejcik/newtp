@@ -22,6 +22,10 @@ the structure from another computer over a network.
 
 \section{Protocols}
 
+A protocol, simply put, is a communication script for two or more parties. It describes the conversation
+structure, semantics and syntax of messages. Here is an overview of several issues that must be solved by
+every protocol.
+
 
 \subsection{Sessions}
 
@@ -40,8 +44,8 @@ top of TCP.
 
 \subsection{Encoding}
 
-Protocols consist of messages exchanged by the communicating parties. There are two main ways to encode the
-messages: either as human-readable text, or as custom binary data.
+Protocols consist of messages, which must be encoded for over-the-wire transfer. There are two main ways to do
+this: either as human-readable text, or as custom binary data.
 
 \subsubsection{Text-based protocols}
 
