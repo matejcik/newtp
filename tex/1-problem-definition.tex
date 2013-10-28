@@ -30,16 +30,16 @@ every protocol.
 \subsection{Sessions}
 
 The most basic "protocol" imaginable is one computer just firing data packets at another, silently hoping that
-the other will reassemble and understand them. We could, in theory, use this sort of protocol for transferring
+the other will reassemble and understand them. We could, in theory, use this sort of protocol for transfering
 files, but it is obviously very impractical. All but the most basic protocols will first establish a session,
 in order to have a context for further communication. Extent of the session can vary, from simply marking
 a collection of packets as belonging together, to providing ordered delivery, to authenticating parties and
 encrypting transmitted data.
 
-Basic session functionality is usually provided by the transport layer, specifically the Transmission Control
-Protocol (TCP). This allows the communicating parties to establish a two-way stream of octets, with reliable
-and ordered delivery, and flow control. Unless noted otherwise, protocols described in this work are built on
-top of TCP.
+Basic session functionality is often provided by the transport layer, specifically the Transmission Control
+Protocol (TCP). This allows the communicating parties to establish a two-way stream of octets, with
+reliability, ordered delivery and flow control. Unless noted otherwise, protocols described in this work are
+built on top of TCP.
 
 
 \subsection{Encoding}
@@ -68,9 +68,8 @@ encoding. If the in-memory encoding is the same as in the protocol, encoding and
 completely. Parsing and framing is trivial - every kind of message can either have a fixed number of
 fixed-size fields, or it can have a fixed-size part describing lengths of all variable-size fields.
 
-Even though today's worldwide computing environment is homogenous in many regards, care must be taken when
-communicating between systems that differ in endianness. The protocol either has to prescribe the byte order,
-or it must provide means for the parties to negotiate.
+Care must be taken when communicating between systems that differ in endianness.  The protocol either has to
+prescribe the byte order, or it must provide means for the parties to negotiate.
 
 Unlike text-based protocols, debugging is not straightforward, humans require specialized tools that convert
 the binary messages to understandable text.
@@ -79,8 +78,8 @@ the binary messages to understandable text.
 \subsection{Roles}
 
 We recognize two basic roles for communicating parties: {\it client} and {\it server}. Client is the party
-that sends requests - specifies what is to be done - and server's task is to fulfil the requests and possibly
-report on results.
+that sends requests - specifies what is to be done - and server's task is to fulfil the requests and report on
+results.
 
 Most protocols are modelled as client-server, with roles of the parties fixed in advance. Typically, the
 server is listening for incoming connections and clients connect at their convenience. In a peer-to-peer
@@ -89,7 +88,77 @@ sending requests to each other.
 
 In this work, we use the following convention: a {\it server} will be the computer that contains a "master
 copy" of a filesystem, and publishes a subtree of this filesystem on the network. A {\it client} is the
-computer that wants to manipulate this published tree using the protocol. 
+computer that wants to manipulate this published tree using the protocol.
+
+
+%%%
+
+\section{Capabilities of a file transfer protocol}
+
+\subsection{Identifying files}
+
+In order to accomplish anything useful with a protocol, there must be a way to specify on which file you want
+to operate. This alone poses a number of issues that must be resolved.
+
+The first question is whether all specified paths are absolute, relative to a fixed path, or relative to the
+session's current directory.
+
+TODO
+
+\subsection{Download}
+
+Downloading, i.e. transfering files from server to client, is arguably the most basic capability provided by
+a file transfer protocol. Client will request a file and server will respond by sending a binary stream of the
+file's contents. Failure modes are obvious: the identifier does not point to a file; file exists but cannot be
+read; or this client does not have permission to access the file.
+
+In basic form of download, the server will send full contents of the file as a continuous stream, possibly
+preceded by length of the stream. However, it is often more useful to specify a range for reading. This allows
+resuming of interrupted downloads, seeking in media streams and the like. It is also very useful if theclient
+wants to implement filesystem-like behavior over the protocol.
+
+A general-purpose protocol will treat files as opaque streams. However, in a specialized protocol, it might be
+useful to understand structure of the file. This can allow the client to e.g. query contents of the file as
+a database, download only thumbnail or embedded metadata etc.
+
+\subsection{Upload}
+
+Transfering from client to server is more complicated. In addition to checking for permissions, the server
+must ensure that there is enough disk space, resolve issues with overwriting existing files, as well as
+gracefully handle concurrent modifications. There might also be issues with missing path components - trying
+to create file in a directory that does not exist. This results in many new failure modes that must be
+expressed in the protocol. However, at this level, it is sufficient to add new error codes, or specify that
+a single error code covers many different types of failure.
+
+\subsection{Directories}
+
+Although it might be tempting to handle directories as a special case of files, directories are very
+different. Where files are opaque blobs, directories are inherently structured, so the protocol must represent
+an API for manipulating the structure. A general-purpose protocol should provide at least the following
+operations:
+
+\begin{itemize}
+	\item list contents of directory
+	\item create file/directory
+	\item delete file/directory
+	\item rename a directory entry
+\end{itemize}
+
+\subsection{Filenames}
+
+Different platforms have different conventions for filenames and paths. Some characters might be invalid in
+file and path names, lengths of path components or the total length of path might be limited. Protocols should
+either abstract away the differences (an inherently difficult problem), provide means to query platform
+limitations, or at least acknowledge failure modes for path names and note that they are platform-dependent.
+
+Another problem is correspondence between directory listings and results of operations. On Windows, filenames
+are not case-sensitive, so creating file "foo" will fail if the directory already contains file "FOO". Mac OS
+X normalizes unicode representations of filenames, which can mean that a newly created file will not appear in
+subsequent directory listing, if the chosen filename was not in the corresponding normalized form.
+
+\subsection{Filename character encoding}
+
+
 
 
 %%%
