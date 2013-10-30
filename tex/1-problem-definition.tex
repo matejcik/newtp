@@ -152,11 +152,29 @@ either abstract away the differences (an inherently difficult problem), provide 
 limitations, or at least acknowledge failure modes for path names and note that they are platform-dependent.
 
 Another problem is correspondence between directory listings and results of operations. On Windows, filenames
-are not case-sensitive, so creating file "foo" will fail if the directory already contains file "FOO". Mac OS
-X normalizes unicode representations of filenames, which can mean that a newly created file will not appear in
-subsequent directory listing, if the chosen filename was not in the corresponding normalized form.
+are not case-sensitive, so creating file "foo" will fail if the directory already contains file "FOO".
+Mac~OS~X normalizes unicode representations of filenames, which can mean that a newly created file will not
+appear in subsequent directory listing, if the chosen filename was not in the corresponding normalized form.
 
 \subsection{Filename character encoding}
+
+One place where a file transfer protocol cannot avoid character encoding issues is in path specifiers and
+directory entry names. The problem is that different systems have different conventions for filename encoding.
+A protocol could specify that filenames are transfered as "plain data", but this would only push the problem
+down to individual implementers. A better solution is to either prescribe or negotiate a transfer encoding,
+and then transcode filenames in client and server software.
+
+Newer filesystems enforce that a filename is a valid Unicode string, but on many widely used filesystems,
+filename can be an arbitrary string of bytes\footnotemark[3]. In effect, a filesystem can store names that
+cannot be properly decoded in the system's character set. This presents a problem for the transcoding process.
+An obvious solution is to ignore invalid filenames, but that is arguably not very useful. It is seemingly
+better to use replacement characters for the undecodable sequences, but in practice, this does not help very
+much, as this way of encoding is not roundtrip-safe. The client can get a listing that contains invalid
+filenames, but cannot specify them, because files with the "fixed" names do not actually exist on the server.
+Moreover, it is impossible for the client to tell apart invalid filenames from valid ones that happen to
+contain the replacement characters, unless the replacement characters are forbidden in valid names.
+
+\subsection{Renaming and moving}
 
 
 
@@ -171,3 +189,6 @@ forward-slash as a path separator everywhere.}
 a corresponding C struct directly. On modern systems, fields of a struct will be memory-aligned and will
 contain some amount of padding. This can differ between systems, compilers, and can even depend on particular
 compiler flags.}
+
+\footnotemark[3]{Unless the byte represents a forbidden character, e.g. forward-slash or null byte on UNIX,
+shell expansion characters on Windows etc.}
