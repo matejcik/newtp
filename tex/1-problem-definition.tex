@@ -12,9 +12,11 @@ that we are using throughout this work.
 Most modern operating systems share a common idea of what constitutes a filesystem. It is a collection of {\it
 files}, which are opaque strings of binary data. Individual files are referenced through a hierarchical
 tree-like structure of {\it directories}.  You can identify any file or directory by its {\it path}, which is
-a string of entry names delimited by path separator characters\footnotemark[1]. You follow the (absolute) path
-by starting at the root directory and always descending into the directory named by the next path element,
-until the last element is remaining, naming the target entry.
+a string of entry names delimited by path separator characters.\footnote{On UNIX-like systems, the path
+separator is a forward-slash, '/'. Windows recognizes both forward-slash and a backslash, but backslash is
+used more commonly. Nevertheless, we will be using forward-slash as a path separator everywhere.} You follow
+the (absolute) path by starting at the root directory and always descending into the directory named by the
+next path element, until the last element is remaining, naming the target entry.
 
 We want to be able to publish one or more subtrees of the filesystem on one computer, and access this part of
 the structure from another computer over a network.
@@ -30,11 +32,11 @@ every protocol.
 \subsection{Sessions}
 
 The most basic "protocol" imaginable is one computer just firing data packets at another, silently hoping that
-the other will reassemble and understand them. We could, in theory, use this sort of protocol for transfering
-files, but it is obviously very impractical. All but the most basic protocols will first establish a session,
-in order to have a context for further communication. Extent of the session can vary, from simply marking
-a collection of packets as belonging together, to providing ordered delivery, to authenticating parties and
-encrypting transmitted data.
+the other will reassemble and understand them. It is, of course, possible to use this sort of protocol for
+transfering files, but it is obviously very impractical. All but the most basic protocols will first establish
+a session, in order to have a context for further communication. Extent of the session can vary, from simply
+marking a collection of packets as belonging together, to providing ordered delivery, to authenticating
+parties and encrypting transmitted data.
 
 Basic session functionality is often provided by the transport layer, specifically the Transmission Control
 Protocol (TCP). This allows the communicating parties to establish a two-way stream of octets, with
@@ -63,10 +65,13 @@ parsing and framing messages is more difficult.
 \subsubsection{Binary protocols}
 
 The alternative to text-based messages is using a format similar to in-memory encoding of data. Each message
-can be described by, and parsed as, a C struct\footnotemark[2]. This results in shorter messages and simpler
-encoding. If the in-memory encoding is the same as in the protocol, encoding and decoding can even be skipped
-completely. Parsing and framing is trivial - every kind of message can either have a fixed number of
-fixed-size fields, or it can have a fixed-size part describing lengths of all variable-size fields.
+can be described by, and parsed as, a C struct.\footnote{This does not mean that you can create a message by
+dumping the memory representation of a corresponding C struct directly. On modern systems, fields of a struct
+will be memory-aligned and will contain some amount of padding. This can differ between systems, compilers,
+and can even depend on particular compiler flags.} This results in shorter messages and simpler encoding. If
+the in-memory encoding is the same as in the protocol, encoding and decoding can even be skipped completely.
+Parsing and framing is trivial - every kind of message can either have a fixed number of fixed-size fields, or
+it can have a fixed-size part describing lengths of all variable-size fields.
 
 Care must be taken when communicating between systems that differ in endianness.  The protocol either has to
 prescribe the byte order, or it must provide means for the parties to negotiate.
@@ -95,15 +100,54 @@ computer that wants to manipulate this published tree using the protocol.
 
 \section{Capabilities of a file transfer protocol}
 
-\subsection{Identifying files}
+\subsection{Paths and filenames}
 
 In order to accomplish anything useful with a protocol, there must be a way to specify on which file you want
 to operate. This alone poses a number of issues that must be resolved.
 
-The first question is whether all specified paths are absolute, relative to a fixed path, or relative to the
-session's current directory.
+\subsubsection{Relative paths}
 
-TODO
+The obvious way to represent a path is by using an absolute path string, i.e. one that specifies all path
+components leading to the target object. Apart from this method, operating systems have a concept of {\it
+current directory} and paths relative to the current directory. Relative path can contain entries named "."
+(refers to current directory) and ".." (parent directory).\footnote{For security reasons, protocol should
+prescribe, and implementations enforce, that "." and ".." components are forbidden in an absolute path.} In
+some cases, it can be useful to expose this functionality through the protocol - either allowing the client to
+choose the current directory, or setting it at a fixed path (e.g. authenticated user's home directory).
+
+\subsubsection{Filenames}
+
+Different platforms have different conventions for filenames and paths. Some characters might be invalid in
+file and path names, lengths of path components or the total length of path might be limited. Protocols should
+either abstract away the differences (an inherently difficult problem, usually resulting in only the
+lowest-common-denominator functionality), provide means to query platform limitations, or at least acknowledge
+failure modes for path names and note that they are platform-dependent.
+
+Another problem is correspondence between directory listings and results of operations. On Windows, filenames
+are not case-sensitive, so creating file "foo" will fail if the directory already contains file "FOO".
+Mac~OS~X normalizes unicode representations of filenames, which can mean that a newly created file will appear
+under a different name.
+
+\subsubsection{Filename character encoding}
+
+One place where a file transfer protocol cannot avoid character encoding issues is in path specifiers and
+directory entry names. The problem is that different systems have different conventions for filename encoding.
+A protocol could specify that filenames are transfered as "plain data", but this would only push the problem
+down to individual implementers. A better solution is to either prescribe or negotiate a transfer encoding,
+and then transcode filenames in client and server software.
+
+Newer filesystems enforce that a filename is a valid Unicode string, but on many widely used filesystems,
+filename can be an arbitrary string of bytes.\footnote{Unless the byte represents a forbidden character, e.g.
+forward-slash or null byte on UNIX, shell expansion characters on Windows etc.} In effect, a filesystem can
+store names that cannot be properly decoded in the system's character set. This presents a problem for the
+transcoding process.  An obvious solution is to ignore invalid filenames, but that is arguably not very
+useful. It is seemingly better to use replacement characters for the undecodable sequences, but in practice,
+this does not help very much, as this way of encoding is not roundtrip-safe. The client can get a listing that
+contains invalid filenames, but cannot specify them, because files with the "corrected" names do not actually
+exist on the server. Moreover, it is impossible for the client to tell apart invalid filenames from valid ones
+that happen to contain the replacement characters, unless the replacement characters are forbidden in valid
+names.
+
 
 \subsection{Download}
 
@@ -114,7 +158,7 @@ read; or this client does not have permission to access the file.
 
 In basic form of download, the server will send full contents of the file as a continuous stream, possibly
 preceded by length of the stream. However, it is often more useful to specify a range for reading. This allows
-resuming of interrupted downloads, seeking in media streams and the like. It is also very useful if theclient
+resuming of interrupted downloads, seeking in media streams and the like. It is also very useful if the client
 wants to implement filesystem-like behavior over the protocol.
 
 A general-purpose protocol will treat files as opaque streams. However, in a specialized protocol, it might be
@@ -126,7 +170,7 @@ a database, download only thumbnail or embedded metadata etc.
 Transfering from client to server is more complicated. In addition to checking for permissions, the server
 must ensure that there is enough disk space, resolve issues with overwriting existing files, as well as
 gracefully handle concurrent modifications. There might also be issues with missing path components - trying
-to create file in a directory that does not exist. This results in many new failure modes that must be
+to create file in a directory that does not exist. This results in several new failure modes that must be
 expressed in the protocol. However, at this level, it is sufficient to add new error codes, or specify that
 a single error code covers many different types of failure.
 
@@ -144,51 +188,16 @@ operations:
 	\item rename a directory entry
 \end{itemize}
 
-\subsection{Filenames}
-
-Different platforms have different conventions for filenames and paths. Some characters might be invalid in
-file and path names, lengths of path components or the total length of path might be limited. Protocols should
-either abstract away the differences (an inherently difficult problem), provide means to query platform
-limitations, or at least acknowledge failure modes for path names and note that they are platform-dependent.
-
-Another problem is correspondence between directory listings and results of operations. On Windows, filenames
-are not case-sensitive, so creating file "foo" will fail if the directory already contains file "FOO".
-Mac~OS~X normalizes unicode representations of filenames, which can mean that a newly created file will not
-appear in subsequent directory listing, if the chosen filename was not in the corresponding normalized form.
-
-\subsection{Filename character encoding}
-
-One place where a file transfer protocol cannot avoid character encoding issues is in path specifiers and
-directory entry names. The problem is that different systems have different conventions for filename encoding.
-A protocol could specify that filenames are transfered as "plain data", but this would only push the problem
-down to individual implementers. A better solution is to either prescribe or negotiate a transfer encoding,
-and then transcode filenames in client and server software.
-
-Newer filesystems enforce that a filename is a valid Unicode string, but on many widely used filesystems,
-filename can be an arbitrary string of bytes\footnotemark[3]. In effect, a filesystem can store names that
-cannot be properly decoded in the system's character set. This presents a problem for the transcoding process.
-An obvious solution is to ignore invalid filenames, but that is arguably not very useful. It is seemingly
-better to use replacement characters for the undecodable sequences, but in practice, this does not help very
-much, as this way of encoding is not roundtrip-safe. The client can get a listing that contains invalid
-filenames, but cannot specify them, because files with the "fixed" names do not actually exist on the server.
-Moreover, it is impossible for the client to tell apart invalid filenames from valid ones that happen to
-contain the replacement characters, unless the replacement characters are forbidden in valid names.
-
 \subsection{Renaming and moving}
 
+Within a single filesystem, renaming and moving are usually performed by the same operation, which is
+essentialy "change this complete path to a different one". Since a move operation only consists of relinking
+a directory entry, it functions the same on individual files as it does on directories, even non-empty ones.
+A protocol can export this functionality as a single command.
 
+Things get more difficult, however, when the new pathname would end up on a different filesystem. To move
+a file from one filesystem to another, you first need to make a copy of the file, then remove the original.
+This is hard to do atomically, even in case of a single file. When attempting to move a non-empty directory,
+the copy-and-remove operation has to be done recursively on its contents first.
 
-
-%%%
-
-\footnotetext[1]{On UNIX-like systems, the path separator is a forward-slash, '/'. Windows recognizes both
-forward-slash and a backslash, but backslash is used more commonly. Nevertheless, we will be using
-forward-slash as a path separator everywhere.}
-
-\footnotetext[2]{This does not mean that you can create a message by dumping the memory representation of
-a corresponding C struct directly. On modern systems, fields of a struct will be memory-aligned and will
-contain some amount of padding. This can differ between systems, compilers, and can even depend on particular
-compiler flags.}
-
-\footnotemark[3]{Unless the byte represents a forbidden character, e.g. forward-slash or null byte on UNIX,
-shell expansion characters on Windows etc.}
+Clients have no way of knowing whether the rename/move operation crosses filesystem boundaries
