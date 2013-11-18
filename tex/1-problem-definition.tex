@@ -107,7 +107,7 @@ to operate. This alone poses a number of issues that must be resolved.
 
 \subsubsection{Relative paths}
 
-The obvious way to represent a path is by using an absolute path string, i.e. one that specifies all path
+The trivial way to represent a path is by using an absolute path string, i.e. one that specifies all path
 components leading to the target object. Apart from this method, operating systems have a concept of {\it
 current directory} and paths relative to the current directory. Relative path can contain entries named "."
 (refers to current directory) and ".." (parent directory).\footnote{For security reasons, protocol should
@@ -115,7 +115,7 @@ prescribe, and implementations enforce, that "." and ".." components are forbidd
 some cases, it can be useful to expose this functionality through the protocol - either allowing the client to
 choose the current directory, or setting it at a fixed path (e.g. authenticated user's home directory).
 
-\subsubsection{Filenames}
+\subsubsection{Validity of path string}
 
 Different platforms have different conventions for filenames and paths. Some characters might be invalid in
 file and path names, lengths of path components or the total length of path might be limited. Protocols should
@@ -147,6 +147,9 @@ contains invalid filenames, but cannot specify them, because files with the "cor
 exist on the server. Moreover, it is impossible for the client to tell apart invalid filenames from valid ones
 that happen to contain the replacement characters, unless the replacement characters are forbidden in valid
 names.
+
+Explicit support for undecodable filenames is possible in several ways, e.g. through lossless transcoding of
+undecodable characters, or by refering to files in some other way than by name.
 
 
 \subsection{Download}
@@ -188,6 +191,10 @@ operations:
 	\item rename a directory entry
 \end{itemize}
 
+
+
+Files can be created implicitly when attempting to write 
+
 \subsection{Renaming and moving}
 
 Within a single filesystem, renaming and moving are usually performed by the same operation, which is
@@ -200,4 +207,7 @@ a file from one filesystem to another, you first need to make a copy of the file
 This is hard to do atomically, even in case of a single file. When attempting to move a non-empty directory,
 the copy-and-remove operation has to be done recursively on its contents first.
 
-Clients have no way of knowing whether the rename/move operation crosses filesystem boundaries
+Therefore, rename/move operations either need to be non-atomic, 
+
+Clients have no way of knowing whether the rename/move operation crosses filesystem boundaries, unless the
+protocol exports this information.
