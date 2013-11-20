@@ -191,23 +191,37 @@ operations:
 	\item rename a directory entry
 \end{itemize}
 
+Listing is pretty straightforward. The only potential issue is that it is difficult to know its length in
+advance. This makes certain kinds of message framing more challenging.
 
+Files can be created implicitly when attempting to write to them. Creating an empty file can be accomplished
+by a zero-length write. On the other hand, there is no equivalent of ``zero-length write'' for implicit
+creation of directories. Therefore, creating a directory needs to be a separate operation.
 
-Files can be created implicitly when attempting to write 
+Deleting files and directories is similar in that it means removing one directory entry. However, if
+implemented in a same operation, it has to account for the possibility that the directory being removed is not
+empty. Then it can either offer the option to recurse into non-empty directories, or return a special error
+condition to indicate this.
 
 \subsection{Renaming and moving}
 
-Within a single filesystem, renaming and moving are usually performed by the same operation, which is
+Within a single filesystem, renaming and moving is usually performed by the same operation, which is
 essentialy "change this complete path to a different one". Since a move operation only consists of relinking
-a directory entry, it functions the same on individual files as it does on directories, even non-empty ones.
-A protocol can export this functionality as a single command.
+a directory entry, it functions the same on individual files as it does on directories, even non-empty
+ones.\footnote{Unlike the remove operation, rename/move does not affect contents of the directory.} A protocol
+can export this functionality as a single command.
 
-Things get more difficult, however, when the new pathname would end up on a different filesystem. To move
-a file from one filesystem to another, you first need to make a copy of the file, then remove the original.
-This is hard to do atomically, even in case of a single file. When attempting to move a non-empty directory,
-the copy-and-remove operation has to be done recursively on its contents first.
+Things get more difficult when the new pathname would end up on a different filesystem. To move a file from
+one filesystem to another, you first need to make a copy of the file, then remove the original.  This is hard
+to do atomically, even in case of a single file. When attempting to move a non-empty directory, the
+copy-and-remove operation has to be done recursively on its contents.
 
-Therefore, rename/move operations either need to be non-atomic, 
+In effect, rename/move operations either need to be (potentially) non-atomic, or fail on operations crossing
+filesystem boundaries. In the latter case, the client would be expected to perform the move "by hand", by
+copying to target and removing sources. But to do this efficiently, the protocol would have to expose an
+on-server copy operation, otherwise the client would need to download and reupload all of the data.
 
-Clients have no way of knowing whether the rename/move operation crosses filesystem boundaries, unless the
-protocol exports this information.
+\subsection{Server filesystem structure}
+
+There are two reasons for the client to be interested in the server's filesystem configuration: free space
+information, and knowledge about filesystem boundaries.
