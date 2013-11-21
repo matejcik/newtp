@@ -224,4 +224,33 @@ on-server copy operation, otherwise the client would need to download and reuplo
 \subsection{Server filesystem structure}
 
 There are two reasons for the client to be interested in the server's filesystem configuration: free space
-information, and knowledge about filesystem boundaries.
+information, and knowledge about filesystem boundaries. Exposing this information is particularly complicated
+on UNIX-like systems, where it is common to use arbitrary directories as mount points for different
+filesystems. One possible solution is having a "statvfs"\cite{statvfs} operation that returns filesystem
+information for particular file or directory. It would then be the client's responsibility to use this
+operation whenever necessary. Another possibility is to make filesystem information part of directory listing.
+
+\subsection{Metadata}
+
+Apart from contents of files and directories, the filesystem stores metadata about entries: file size,
+creation date, last modification date, filesystem attributes, ownership and access rights, link count etc.
+Although it is not essential, a full-featured protocol will expose operations to query and modify this kind of
+metadata. It is also very useful to send this information along with directory listing - querying each entry
+in a directory with hudreds or thousands of files would be woefully inefficient. On the other hand, it might
+be useful to specify what kind of metadata to include in the listing.
+
+Filesystem metadata is obviously different on different filesystems and different operating systems. The
+protocol can provide a common subset, a union set with missing fields, or platform-specific functions.
+
+Some filesystems support custom metadata fields, or access control lists (ACLs) for fine-grained rights
+management. These are rarely used in end-user software, but if a protocol is supposed to provide
+filesystem-like functionality, it should also expose this kind of metadata.
+
+\subsection{Locking}
+
+Modern operating systems provide mechanisms for one process to lock a file, preventing other processes from
+accessing or modifying it concurrently. It is straightforward to expose these operations through a network
+protocol, but doing so without careful consideration will lead to problems. Locking is usually designed and
+used as a guarantee of atomicity and/or consistency, and it is difficult to provide such guarantees when
+working over an unreliable network. Transmission errors and lost connections may result in an inconsistent
+state of the locked file if the lock is released too soon, or in deadlocks if the lock is held for too long.
