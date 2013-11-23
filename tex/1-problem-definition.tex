@@ -267,5 +267,71 @@ section, we examine various properties of the protocol and its behaviors in a mo
 \subsection{Authentication}
 
 Apart from file serving capabilities, a protocol should have means to identify clients and verify that they
-are who they claim to be in order to properly enforce access rights.  Some protocols include authentication
-mechanisms directly, others rely on their transport layer to provide
+are who they claim to be in order to properly enforce access rights. Most commonly, clients have to identify
+themselves by providing user name and a valid password for that user. Other possibilities include using
+challenge-response schemes, public key authentication, or a trusted third party. Some protocols include
+authentication mechanisms directly, other rely on the transport layer to provide an authenticated session.
+
+From the other side, it is often useful to enable public unauthenticated access. A good way to accomplish this
+is to make authentication optional. This might be difficult to do when authentication comes from the transport
+layer, which might or might not support unauthenticated channels. Another way is to establish a convention
+that a certain username (such as ``anonymous'' or ``guest'') does not require credentials, but depending on
+the specifics of the authentication scheme, this might be hard too.
+
+\subsection{Encryption}
+
+Public networks, and especially the Internet, make no guarantees of confidentiality. Even if you are not
+broadcasting on an open Wi-Fi network, your communication is routed through a number of untrusted third
+parties. It would be unwise to transmit anything without encryption, especially so in a file transfer protocol
+that might potentially be used to work with confidential data.
+
+A good encryption scheme must also include resistance to Man-in-the-Middle attacks. Basically, a client must
+be able to verify authenticity of the server - otherwise an attacker could impersonate the server, rendering
+on-the-wire encryption pointless. This is, in general, a hard problem. Either the client must know the server
+(or rather its public key) in advance, or it needs to trust a third party that can vouch for the server's
+identity, possibly through a chain of intermediary trusted parties. However, neither of the options might be
+viable in many real-world scenarios. At the very least, clients should remember server's public key from first
+connection attempt and check that it does not change on subsequent connections.
+
+\subsection{Resistance to attacks}
+
+Security of server and clients mainly hangs on their implementations, not on the protocol itself. However,
+protocol designers should strive to minimize the attack surface by minimizing the number of features that
+might interact with each other in unpredictable ways. Generally, the simpler the protocol definition, the
+easier it is to implement, and the less chance for introducing security (or other) bugs in the implementation.
+
+Another consideration is vulnerability to Denial of Service attacks. Individual operations should be designed
+so that a simple command from the client cannot use up more than a ``fair share'' of computational capacity of
+the server.\footnote{For instance, it is possible to construct very short XML documents that require
+inordinate amounts of memory and processing time to fully parse, due to recursive explosion of entity
+expansion. Compression algorithms face a similar problem.} Otherwise, malicious clients could abuse such
+functionality to tie up all of server's resources. Of course, in the end, it is up to the server
+implementation to set up and enforce resource limits, but protocol design should not actively make this task
+harder.
+
+\subsection{Performance}
+
+There are several factors that come under this heading. One of them is protocol overhead: how much data is
+sent over the wire when transfering a file, compared to size of the file itself?  This includes per-file and
+potentially per-session setup cost, overhead of session management, size of protocol messages, framing
+overhead and so on. Obviously, a protocol that requires a ten-byte packet for every byte of payload would not
+fare too well in this regard. Lowest achievable overhead would be in a protocol consisting of a short setup
+sequence followed by unbroken transmission of the file contents.
+
+This would, however, vastly increase response times. Users want to be able to run file transfers in the
+background while continuing to browse the server. Even more demanding is usage as a filesystem, where random
+access is essential. Pausing all I/O operations until file transfer is finished would be unacceptable, and
+opening a new connection for every parallel operation is a poor solution. It should be possible to interleave
+several operations within a single session. To achieve that, it is necessary to limit the size of each
+request-response exchange.
+
+Some operations take longer to execute than others. Even if we count reading from a local hard drive as
+near-instanteous, the protocol might support operations like server-side copy, which can take a long time to
+complete. If every client request must be followed by a corresponding response, waiting for one long-running
+operation would kill latency. The protocol could allow the server to reorder responses, so that it can service
+upcoming requests before the long-running operation completes. Alternately, there could be a mechanism for the
+client to launch a long-running operation and monitor its progress without waiting for completion.
+
+\subsection{Server state}
+
+
