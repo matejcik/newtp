@@ -1,4 +1,4 @@
-% vim: tw=110:fo=an1lt
+% vim: tw=110:fo=an1lt:nosmartindent
 
 \chapter{Problem Definition}
 
@@ -13,10 +13,10 @@ Most modern operating systems share a common idea of what constitutes a filesyst
 files}, which are opaque strings of binary data. Individual files are referenced through a hierarchical
 tree-like structure of {\it directories}.  You can identify any file or directory by its {\it path}, which is
 a string of entry names delimited by path separator characters.\footnote{On UNIX-like systems, the path
-separator is a forward-slash, '/'. Windows recognizes both forward-slash and a backslash, but backslash is
-used more commonly. Nevertheless, we will be using forward-slash as a path separator everywhere.} You follow
-the (absolute) path by starting at the root directory and always descending into the directory named by the
-next path element, until the last element is remaining, naming the target entry.
+separator is a forward-slash, `\texttt{/}'. Windows recognizes both forward-slash and a backslash, but
+backslash is used more commonly. Nevertheless, we will be using forward-slash as a path separator everywhere.}
+You follow the (absolute) path by starting at the root directory and always descending into the directory
+named by the next path element, until the last element is remaining, naming the target entry.
 
 We want to be able to publish one or more subtrees of the filesystem on one computer, and access this part of
 the structure from another computer over a network.
@@ -31,12 +31,12 @@ every protocol.
 
 \subsection{Sessions}
 
-The most basic "protocol" imaginable is one computer just firing data packets at another, silently hoping that
-the other will reassemble and understand them. It is, of course, possible to use this sort of protocol for
-transfering files, but it is obviously very impractical. All but the most basic protocols will first establish
-a session, in order to have a context for further communication. Extent of the session can vary, from simply
-marking a collection of packets as belonging together, to providing ordered delivery, to authenticating
-parties and encrypting transmitted data.
+The most basic ``protocol'' imaginable is one computer just firing data packets at another, silently hoping
+that the other will reassemble and understand them. It is, of course, possible to use this sort of protocol
+for transfering files, but it is obviously very impractical. All but the simplest of protocols will first
+establish a session, in order to have a context for further communication. Extent of the session can vary,
+from simply marking a collection of packets as belonging together, to providing ordered delivery, to
+authenticating parties and encrypting transmitted data.
 
 Basic session functionality is often provided by the transport layer, specifically the Transmission Control
 Protocol (TCP). This allows the communicating parties to establish a two-way stream of octets, with
@@ -54,9 +54,9 @@ this: either as human-readable text, or as custom binary data.
 In text-based protocols, each message is a string of words and/or numbers, nowadays usually encoded as ASCII
 or UTF-8. Many such protocols also use line separator characters to delimit messages. The main advantage of
 this approach is that it is readable (and writable) by humans without specialized debugging tools - for
-instance, it is possible to communicate with the other party "by hand", without software implementing the
-protocol. Historically, there was also the fact that two communicating systems only had to agree on text
-encoding, and not about in-memory format of numbers or other data structures.
+instance, it is possible to communicate with the other party by typing out commands, without software
+implementing the protocol.  Historically, there was also the fact that two communicating systems only had to
+agree on text encoding, and not about in-memory format of numbers or other data structures.
 
 Drawbacks include overhead of text encoding, both in terms of size and processing time spent encoding and
 decoding the textual representation. Another problem is that lengths of message fields are not fixed, so
@@ -91,8 +91,8 @@ server is listening for incoming connections and clients connect at their conven
 model, after establishing the connection, parties can act as both clients and servers at the same time,
 sending requests to each other.
 
-In this work, we use the following convention: a {\it server} will be the computer that contains a "master
-copy" of a filesystem, and publishes a subtree of this filesystem on the network. A {\it client} is the
+In this work, we use the following convention: a {\it server} will be the computer that contains a ``master
+copy'' of a filesystem, and publishes a subtree of this filesystem on the network. A {\it client} is the
 computer that wants to manipulate this published tree using the protocol.
 
 
@@ -109,11 +109,12 @@ to operate. This alone poses a number of issues that must be resolved.
 
 The trivial way to represent a path is by using an absolute path string, i.e. one that specifies all path
 components leading to the target object. Apart from this method, operating systems have a concept of {\it
-current directory} and paths relative to the current directory. Relative path can contain entries named "."
-(refers to current directory) and ".." (parent directory).\footnote{For security reasons, protocol should
-prescribe, and implementations enforce, that "." and ".." components are forbidden in an absolute path.} In
-some cases, it can be useful to expose this functionality through the protocol - either allowing the client to
-choose the current directory, or setting it at a fixed path (e.g. authenticated user's home directory).
+current directory} and paths relative to the current directory. Relative path can contain entries named
+``\texttt{.}'' (refers to current directory) and ``\texttt{..}'' (parent directory).\footnote{For security
+reasons, protocol should prescribe, and implementations enforce, that ``\texttt{.}'' and ``\texttt{..}''
+components are forbidden in an absolute path.} In some cases, it can be useful to expose this functionality
+through the protocol - either allowing the client to choose the current directory, or setting it at a fixed
+path (e.g.  authenticated user's home directory).
 
 \subsubsection{Validity of path string}
 
@@ -124,7 +125,7 @@ lowest-common-denominator functionality), provide means to query platform limita
 failure modes for path names and note that they are platform-dependent.
 
 Another problem is correspondence between directory listings and results of operations. On Windows, filenames
-are not case-sensitive, so creating file "foo" will fail if the directory already contains file "FOO".
+are not case-sensitive, so creating file {\tt foo} will fail if the directory already contains file {\tt FOO}.
 Mac~OS~X normalizes unicode representations of filenames, which can mean that a newly created file will appear
 under a different name.
 
@@ -132,7 +133,7 @@ under a different name.
 
 One place where a file transfer protocol cannot avoid character encoding issues is in path specifiers and
 directory entry names. The problem is that different systems have different conventions for filename encoding.
-A protocol could specify that filenames are transfered as "plain data", but this would only push the problem
+A protocol could specify that filenames are transfered as ``plain data'', but this would only push the problem
 down to individual implementers. A better solution is to either prescribe or negotiate a transfer encoding,
 and then transcode filenames in client and server software.
 
@@ -143,7 +144,7 @@ store names that cannot be properly decoded in the system's character set. This 
 transcoding process.  An obvious solution is to ignore invalid filenames, but that is arguably not very
 useful. It is seemingly better to use replacement characters for the undecodable sequences, but in practice,
 this does not help very much, as this way of encoding is not roundtrip-safe. The client can get a listing that
-contains invalid filenames, but cannot specify them, because files with the "corrected" names do not actually
+contains invalid filenames, but cannot specify them, because files with the modified names do not actually
 exist on the server. Moreover, it is impossible for the client to tell apart invalid filenames from valid ones
 that happen to contain the replacement characters, unless the replacement characters are forbidden in valid
 names.
@@ -206,7 +207,7 @@ condition to indicate this.
 \subsection{Renaming and moving}
 
 Within a single filesystem, renaming and moving is usually performed by the same operation, which is
-essentialy "change this complete path to a different one". Since a move operation only consists of relinking
+essentialy ``change this complete path to a different one''. Since a move operation only consists of relinking
 a directory entry, it functions the same on individual files as it does on directories, even non-empty
 ones.\footnote{Unlike the remove operation, rename/move does not affect contents of the directory.} A protocol
 can export this functionality as a single command.
@@ -217,7 +218,7 @@ to do atomically, even in case of a single file. When attempting to move a non-e
 copy-and-remove operation has to be done recursively on its contents.
 
 In effect, rename/move operations either need to be (potentially) non-atomic, or fail on operations crossing
-filesystem boundaries. In the latter case, the client would be expected to perform the move "by hand", by
+filesystem boundaries. In the latter case, the client would be expected to perform the move ``by hand'', by
 copying to target and removing sources. But to do this efficiently, the protocol would have to expose an
 on-server copy operation, otherwise the client would need to download and reupload all of the data.
 
@@ -254,3 +255,17 @@ protocol, but doing so without careful consideration will lead to problems. Lock
 used as a guarantee of atomicity and/or consistency, and it is difficult to provide such guarantees when
 working over an unreliable network. Transmission errors and lost connections may result in an inconsistent
 state of the locked file if the lock is released too soon, or in deadlocks if the lock is held for too long.
+
+%%%
+
+\section{Other considerations}
+
+When designing a protocol, it is not enough to look at a checklist of desired capabilities. We must also
+consider how the protocol behaves in practice, and how it functions as a part of a larger system. In this
+section, we examine various properties of the protocol and its behaviors in a more goal-oriented manner.
+
+\subsection{Authentication}
+
+Apart from file serving capabilities, a protocol should have means to identify clients and verify that they
+are who they claim to be in order to properly enforce access rights.  Some protocols include authentication
+mechanisms directly, others rely on their transport layer to provide
