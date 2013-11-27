@@ -335,9 +335,9 @@ client to launch a long-running operation and monitor its progress without waiti
 \subsection{Server state}
 
 The terms ``stateless'' and ``stateful'' in relation to protocols are not defined precisely. But loosely
-speaking, in a stateless protocol, the server does not retain any information between client requests. Each
-request could come in stand-alone, in its own session, and the result would be the same as if several requests
-came one after another within a single session.
+speaking, in a stateless protocol, the server does not retain any request- or client-related information
+between client requests.  Each request could come in stand-alone, in its own session, and the result would be
+the same as if several requests came one after another within a single session.
 
 There are several advantages to statelessness. Most obviously, a stateless protocol copes better with network
 failures. Loss of connection interrupts at most one request, which can be immediately repeated when
@@ -366,9 +366,57 @@ request, it might not be able to know if the client is retrying a request that a
 intends to repeat the same request for the second time. Idempotent operations ensure that this does not
 matter: the server can perform the operation again safely, without doing something the client did not intend.
 
+Read operations are idempotent by nature. Unless another user or process modifies the filesystem, reading the
+same position from the same file will always return the same result - and in case the filesystem is modified
+externally between the calls, the client can simply rely on the newest result. The same holds for listing
+directories, querying file attributes etc.  Setting metadata values or writing same data into the same file
+offset repeatedly is also idempotent.  However, an {\it append} operation is not, because it writes to current
+end of file, which might have been changed by the previous {\it append}.
 
+Rename and delete operations are idempotent in the sense that repeating the operation will not cause further
+changes. However, the first successful application will remove the source file, and subsequent attempts might
+result in an error. This should not matter to the client: for deletion, the desired result has apparently been
+accomplished; and for rename, it is easy to query the supposed new path in order to distinguish between
+external modification and previous operation succeeding.
+
+Similar is true for creating files\footnote{Unless creating is implicit in a write operation, in which case
+the write operation discussion applies.} and directories. Once the first create operation succeeds, subsequent
+applications will fail because the object already exists. There is an important caveat, though: in the absence
+of better locking mechanisms, some programs use temporary files and especially directories to indicate that
+a lock on a particular resource is held. For this usecase, it is very important to distinguish whether the
+create operation succeeded (the caller now holds the lock) or failed (somebody else holds the lock). This is
+virtually impossible in a stateless protocol, and difficult in a stateful one as well. The server would need
+to retain state even for some time after the connection is lost, it would have to match reconnection attempts
+to previously lost connections, recognize that a seemingly live connection on the server is actually already
+lost on the client's end and so on. Protocols might choose not to support this scenario - even if done
+properly, directory-based locking is prone to deadlocks anyway, so it might be more efficient to spend efforts
+on a proper locking mechanism.
 
 
 \subsection{Client-side caching}
 
-what sort of guarantees does the protocol prescribe for cache validity
+Applications that directly implement a network protocol tend to ``know how to use it'' - how to perform their
+actions and service user requests in a manner that is efficient over the given network protocol. For instance,
+a file manager with network support can use operations like server-side copy; a media player knows which parts
+of the file are required for complete playback and which can be discarded after a seek; database editor can
+efficiently predict which blocks to read ahead depending on what operation the user is performing.
+Furthermore, in day-to-day operation, users can work with stale data that is minutes or even hours old - and
+where required, the application can provide a ``refresh'' function to invalidate caches manually.
+
+This is not the case when the protocol is used to emulate a local filesystem. In such situation, the
+implementing application only receives requests that correspond to filesystem primitives, and it needs to
+provide low latency for applications not designed with networking in mind. Here, local caching and timely
+cache invalidation is especially important.
+
+Normally, a file transfer protocol would not make special arrangements for caching. It might be beneficial to
+at least informally describe the sort of behavior that can be expected. The simplest caching policy is
+client-dependent, i.e. the onus is on the client to periodically check freshness of its cache. As for write
+cache, it is traditionally flushed when an user application closes the file.
+
+Specialized protocols, or protocols designed specifically for filesystem-like access, may prescribe more
+specific caching policies or even facilitate mechanisms for cache invalidation triggered by the server. As an
+example of one of the simpler approaches, the client can request to be notified of all file changes. A more
+complicated example is the server giving virtual ownership of a file to a client, and notifying it when other
+clients want to access the file so that the virtual owner can sync back its changes. Note that it is
+significantly easier for the server software to maintain client caches and concurrent access invariants if it
+is the only process that works with the published filesystem.
