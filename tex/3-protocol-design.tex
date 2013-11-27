@@ -2,5 +2,179 @@
 
 \chapter{Design of the new protocol}
 
-This chapter describes the newly developed protocol. First, we examine the choices of protocol properties and
-describe the tradeoffs we had to make to achieve these properties. Then we describe ...something else.
+This chapter describes the newly developed protocol, which we will call NewTP, as a play on FTP. First, we
+examine the choices of protocol properties and describe the tradeoffs we had to make to achieve these
+properties. Then we describe ...something else.
+
+TODO
+
+\section{Design decisions}
+
+what sort of features we want, what sort of tradeoffs we had to accomplish
+
+\subsection{Supported scenarios}
+
+We want this to be used for "public fileservers" on firewalled home networks, fast-setup for sharing between
+machines on a public network, secure fileservers on the Internet, and possibly also authenticated access for
+multi-account machines such as webhosting.
+
+\subsection{Simplicity}
+
+everyone wants simple, and for everyone it means different things. for us, that means that we limit core
+feature set, leaving more complex behaviors to extensions.
+
+\subsection{Low latency}
+
+We want good interleaving on single connection because connection setup takes too long, and we want the
+ability to accomplish most operations with one send. This also supports use as a mounted filesystem. We don't
+aim for full statelessness because we want to minimize overhead, so no repeating.
+
+As a result, we limit request and response sizes to 64kB.
+
+\subsection{Encrypted by default}
+
+We prescribe TLS encryption, and strongly recommend at least TLS 1.2 with good algorithms. Reference
+implementation uses GnuTLS. We need to manage server certificates somehow. Self-signed certs are explicitly
+allowed. Every certificate must be pinned and checked against on subsequent connections (basically what ssh
+does). No bullshit like load-balancing over two servers with two different certificate authorities is allowed.
+(what about allowing multiple certificates from same authority?)
+
+\subsection{Authentication is optional}
+
+We want to support "public fileservers" on home networks, but allow authentication when more privacy is
+needed. All implementations that allow authentication must support password-only auth (because "dorm network"
+scenario), we offer other options possibly through SASL. One of the options is client certificate.
+
+Do we need to do something special to support OAuth? How about twofactor auth?
+
+\subsection{Caching policy}
+
+TODO
+
+\subsection{Path string encoding}
+
+We use UTF-8 for everything everywhere. But we want to support undecodable filenames as well, so for them, we
+reserve an Unicode private range, and each undecodable character is sent as 0x123456 + its byte value.
+
+\subsection{Directory creation}
+
+Since we won't support real locks, we will support create-directory locks. This requires certain amount of
+smartness on our side, and it's still far from perfect.
+
+\subsection{Security considerations}
+
+Here we briefly revisit encryption, and talk for a bit about DoSability. Also, we mention what requirements
+are there for the various scenarios.
+
+\subsection{Anything else?}
+
+TODO
+
+%%
+
+\section{Building blocks}
+
+How the new protocol actually operates?
+
+\subsection{Packet format notation}
+
+Basically the same as in RFC 4251 - byte, uint16 etc.
+
+\subsection{File handles}
+
+are everything. You first need to assign a path to a handle, then you can do whatever with it. Handles can
+have state: position in file or in directory listing.
+
+\subsection{Attributes}
+
+how we work with attributes: there's a predefined list that covers unices and windows, you can select which
+ones you want to get with directory listing, by default you get "whatever local stat() returns", server tells
+you what it is at start, you can reconfigure
+
+\subsection{Request and response packets}
+
+Each "packet" contains 16bit length of rest of the packet, followed by mandatory header, followed by
+(optional) arguments for current command. Request header contains command id, handle id and operation id.
+Response header contains operation id and return code. Smaller than 0x80 is OK, 0x80 and above is error. The
+codes have predefined meanings.
+
+\subsection{Communication scheme}
+
+Client starts by sending hello, then it can authenticate if it wants, then it fires commands and gets
+responses. In the first version, responses come in the same order as commands. There is no QUIT command,
+client simply disconnects and server discards all (most?) state.
+
+\subsection{Example session}
+
+TODO - only a table?
+
+%%
+
+\section{List of commands}
+
+Complete list of core commands, with descriptions, arguments, etc.
+
+\subsection{PING}
+
+\subsection{HELLO}
+
+\subsection{ASSIGN}
+
+\subsection{STAT}
+
+\subsection{STATVFS}
+
+\subsection{SEEK}
+
+\subsection{READ}
+
+\subsection{WRITE}
+
+\subsection{APPEND}
+
+\subsection{TRUNCATE}
+
+\subsection{DELETE}
+
+\subsection{RENAME}
+
+\subsection{MAKEDIR}
+
+\subsection{REWINDDIR}
+
+\subsection{READDIR}
+
+\subsection{SETATTR}
+
+\subsection{which-attributes-to-show-in-readdir}
+
+%%
+
+\section{Result codes}
+
+TODO - only a table?
+
+%%
+
+\section{Extensions}
+
+this section describes the concept of the extension mechanism and lists some extensions
+
+\subsection{Authentication}
+
+Authentication is optional, so it is implemented as an extension even though it is integral to the server. The
+server will advertise presence of the extension and that's how client knows it can authenticate.
+
+\subsection{Asynchronous operations}
+
+Commands to fire off an operation (equivalent of some commands, plus on-server copy, recursive delete,
+cross-filesystem move etc.) on a handle, command to monitor progress (depends on the command, by default
+"none/in progress/finished"), command to abort.
+
+\subsection{Extended attributes}
+
+Commands to read and set extended attributes.
+
+\subsection{Links}
+
+Separate extensions for hardlinks and softlinks? Each with one command: link this path to this new name.

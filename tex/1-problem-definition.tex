@@ -312,7 +312,7 @@ harder.
 \subsection{Performance}
 
 There are several factors that come under this heading. One of them is protocol overhead: how much data is
-sent over the wire when transfering a file, compared to size of the file itself?  This includes per-file and
+sent over the wire when transfering a file, compared to size of the file itself.  This includes per-file and
 potentially per-session setup cost, overhead of session management, size of protocol messages, framing
 overhead and so on. Obviously, a protocol that requires a ten-byte packet for every byte of payload would not
 fare too well in this regard. Lowest achievable overhead would be in a protocol consisting of a short setup
@@ -334,4 +334,41 @@ client to launch a long-running operation and monitor its progress without waiti
 
 \subsection{Server state}
 
+The terms ``stateless'' and ``stateful'' in relation to protocols are not defined precisely. But loosely
+speaking, in a stateless protocol, the server does not retain any information between client requests. Each
+request could come in stand-alone, in its own session, and the result would be the same as if several requests
+came one after another within a single session.
 
+There are several advantages to statelessness. Most obviously, a stateless protocol copes better with network
+failures. Loss of connection interrupts at most one request, which can be immediately repeated when
+connectivity is restored. In the same vein, server can restart between requests and if this happens fast
+enough, clients might not even notice the outage. This property also lends itself well to load balancing:
+a number of separate computers can be deployed running the server software, and clients can be randomly
+directed to any of them without the need to synchronize state between the servers.
+
+Statelessness is limiting in that every request must be self-contained. That means that there are no
+authenticated sessions, every request must be authenticated separately. Same goes e.g. for filenames: in
+a sequence of requests for reading from the same file, the filename would have to be repeated in each of them.
+Advantages of stateless protocols don't apply well to long-running operations, because the progress of the
+operation itself is state and it is lost in case of failure.
+
+\subsection{Idempotence}
+
+Idempotence is the property of operations where subsequent applications of the same operation do not change
+the initial result. In the context of a file transfer protocol, this means that repeating a particular command
+with particular arguments any number of times will cause at most one change to the server filesystem.
+Ideally, each invocation will also return the same result.
+
+This is very useful for recovering from network failures. If the client issues a request and does not receive
+a response, it can't be sure whether the request actually arrived on the server and the response was lost, or
+whether the request itself was not delivered. Conversely from the other side, if the server sees a repeated
+request, it might not be able to know if the client is retrying a request that appeared as failed, or if it
+intends to repeat the same request for the second time. Idempotent operations ensure that this does not
+matter: the server can perform the operation again safely, without doing something the client did not intend.
+
+
+
+
+\subsection{Client-side caching}
+
+what sort of guarantees does the protocol prescribe for cache validity
