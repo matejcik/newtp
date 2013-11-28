@@ -2,10 +2,11 @@
 
 \chapter{Related works}
 
-This chapter examines several popular existing protocols and general characteristics
-of their implementations.
+This chapter examines several popular existing protocols and general characteristics of their implementations.
+For each protocol, we briefly describe its history, outline its features and mode of operation, and weigh its
+strong and weak points, with some emphasis on security.
 
-TODO tcp/udp/whatever
+Unless noted otherwise, the protocols described here run on top of TCP/IP.
 
 \section{FTP}
 
@@ -16,12 +17,23 @@ mostly describing how the standard has evolved in practical use.
 
 With FTP, the client establishes a text-based, line-oriented {\it control} connection to the server. Through this
 the user can configure session parameters, traverse and list directories and manipulate directory entries,
-similar to an interactive shell. Many commands are designed for human use, e.g. the HELP command, or the LIST
+similar to an interactive shell. Commands are designed for human use first, e.g. the HELP command, or the LIST
 command that lists contents of the current directory in a platform-dependent textual format. Actual file
-transfers run on separate {\it data} connections which are negotiated on the control connection. This means that
-in order to support FTP transparently, firewalls and NATs must understand the FTP protocol.
+transfers run on separate {\it data} connections which are negotiated on the control connection. This means
+that in order to support FTP transparently, firewalls and NATs must run deep packet inspection on FTP traffic.
 
-TODO zmínit že řeší spoustu nepodstatných kravin
+Many of the protocol's features are designed to enable interoperation between systems with wildly different
+concepts of file and directory structure. FTP supports several kinds of files depending on how the host system
+stores them, several transfer modes, and explicit control of text file transfer, such as pagination and print
+character conversion. These features are largely useless in the relatively homogenous computing environments
+of today. On the other hand, while the protocol has distinct ASCII and EBCDIC modes, it has no support for
+internationalized encodings.
+
+FTP does not support transfer interleaving and one control connection can only support one data transfer at
+a time. Furthermore, there is no support for ranged reads and writes.  It is possible to seek to a specified
+point in a file before performing a data transfer, and it is possible to stop the transfer at an arbitrary
+point, but this must be done in real time, and a new connection must be opened for each data transfer
+connection. This makes FTP particularly unsuitable for filesystem-like operation.
 
 Users authenticate themselves with user name, password and optionally an account name. The protocol specifies
 no encryption, so all information is transferred in plain text. RFC~4217~\cite{rfc4217} specifies a variant of
@@ -36,16 +48,20 @@ content, those are usually used in application-specific manner and not for gener
 doesn't support directory manipulation at all. Current HTTP specification is described by
 RFC~2616~\cite{rfc2616} from~1999.
 
-HTTP is text-based. Each client request specifies a method (one of GET, PUT, POST or DELETE) and an URL on the
-first line, followed by any number of headers, one per line.  Headers can specify content metadata,
-instructions for proxies, client expectations etc. The headers section can be followed by a body containing
-arbitrary data. Similarly, server response starts with a numeric response code, followed by headers and data
-payload.
+HTTP is text-based. Each client request specifies a method (one of {\tt GET}, {\tt PUT}, {\tt POST} or {\tt
+DELETE}) and an URL on the first line, followed by any number of headers, one per line.  Headers can specify
+range of transfer, content metadata, instructions for proxies, client expectations etc. The headers section
+can be followed by a body containing arbitrary data. Similarly, server response starts with a numeric response
+code, followed by headers and data payload.
 
 The protocol is fully stateless and has no concept of sessions beyond single request/response exchanges,
-although it allows reusing a single TCP connection as an optimization.  RFC~2069~\cite{rfc2069} specifies a
-simplistic authentication model, based on username/password combinations. RFC~2818~\cite{rfc2818} describes
-how to use the protocol with TLS, which is commonly known as HTTPS.
+although it allows reusing a single TCP connection as an optimization. Heavy emphasis is placed on
+cacheability of requests, and due to this property, it is simple to build load balancers and content delivery
+networks for HTTP servers. Although less common today, proxy servers can be placed on LANs as transparent
+local caches for clients retrieving the same data.
+
+RFC~2069~\cite{rfc2069} specifies a simplistic authentication model based on username/password combinations.
+RFC~2818~\cite{rfc2818} describes how to use the protocol with TLS, which is commonly known as HTTPS.
 
 \subsection{WebDAV}
 
@@ -64,14 +80,9 @@ authentication models and it can run under HTTPS encryption mode. It is also bac
 HTTP-only proxies. Depending on the nature of the proxy, WebDAV traffic can either pass through unchanged, or
 a failure is detected and doesn't endanger consistency of server state.
 
-The whole of WebDAV's functionality is relatively complex: it concerns itself with issues like authorship,
-conflict resolution, locking policies, content properties and metadata etc. Also, it is designed to run on
-WWW, which means that it has to care about unique URLs, many users, anonymous vs. authorized access, proxying
-and so on.  So while client implementations can be relatively simple (this is even a requirement of the
-original WebDAV proposal), servers tend to be complicated.
-
-WebDAV is natively supported in most modern OSes, but due to the complexity, implementations tend to be
-slightly incompatible.
+The protocol's features work well for filesystem-like access, and indeed, WebDAV is often supported out of the
+box in modern operating systems. However, these implementation tend to be slightly incompatible esp. in terms
+of user authentication and authorship management.
 
 \section{SMB}
 
@@ -84,12 +95,16 @@ initiative.
 SMB was originally designed as an all-encompasing networking protocol for small local networks. Apart from
 publishing parts of directory trees, it allows sharing printers, ports and even some IPC mechanisms. The
 NetBIOS API allows service discovery, but these days this capability is mostly superseded by use of
-Dynamic~DNS. SMB is often used as a filesystem, e.g. for storing user profile data on a central server, its
-directory access features are filesystem-like and commands roughly correspond to filesystem access primitives.
+Dynamic~DNS.
 
-The protocol is binary. It specifies a packet format and a number of commands, their arguments and responses.
-Since SMB 2.0, GSS-API is used for user authentication. Support for digitally-signed communications existed in
-older versions of the protocol, and version 3.0 enhances that with full encryption support.
+SMB is a binary protocol and its file transfer capabilities are designed for filesystem-like access. It
+provides locking mechanisms and transparent failover features. Since SMB 2.0, GSS-API is used for user
+authentication.  Support for digitally-signed communications existed in older versions of the protocol, and
+version 3.0 enhances that with full encryption support.
+
+As a filesystem, SMB is feature-complete and has good performance characteristics. The drawback is that due to
+the complexity, it not so well suited for simpler file transfer tasks, and it is difficult to implement as
+a separate protocol outside its environment.
 
 \section{NFS}
 

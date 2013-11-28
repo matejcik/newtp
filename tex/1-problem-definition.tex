@@ -400,8 +400,8 @@ malicious actors cannot trigger the replay detection for other clients.
 Maintaining idempotence in concurrent environment does not solve the race conditions, and the directory
 locking method is prone to deadlocks anyway. Given that, it is usually not worth the effort to try to solve
 this problem fully, opting instead for a dedicated locking mechanism. However, there is value in implementing
-mitigation strategies - such as a less sophisticated detection method that does not attempt to cover all
-scenarios.
+mitigation strategies - such as a less sophisticated replay detection method that does not attempt to cover
+all scenarios.
 
 
 \subsection{Client-side caching}
@@ -424,10 +424,11 @@ at least informally describe the sort of behavior that can be expected. The simp
 client-dependent, i.e. the onus is on the client to periodically check freshness of its cache. As for write
 cache, it is traditionally flushed when an user application closes the file.
 
-Specialized protocols, or protocols designed specifically for filesystem-like access, may prescribe more
-specific caching policies or even facilitate mechanisms for cache invalidation triggered by the server. As an
-example of one of the simpler approaches, the client can request to be notified of all file changes. A more
-complicated example is the server giving virtual ownership of a file to a client, and notifying it when other
-clients want to access the file so that the virtual owner can sync back its changes. Note that it is
-significantly easier for the server software to maintain client caches and concurrent access invariants if it
-is the only process that works with the published filesystem.
+Specialized protocols, or protocols designed to act as filesystems, may prescribe more specific caching
+policies or even facilitate mechanisms for cache invalidation triggered by the server.  As an example of one
+of the simpler approaches, the client can request to be notified of all changes on a given set of files.
+A more complicated example is the server giving virtual ownership of a file to a client, and notifying it when
+other clients want to access the file so that the virtual owner can sync back its changes.
+
+Note that it is significantly easier for the server software to maintain client caches and concurrent access
+invariants if it is the only process that works with the published filesystem.
