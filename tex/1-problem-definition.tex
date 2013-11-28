@@ -367,7 +367,7 @@ intends to repeat the same request for the second time. Idempotent operations en
 matter: the server can perform the operation again safely, without doing something the client did not intend.
 
 Read operations are idempotent by nature. Unless another user or process modifies the filesystem, reading the
-same position from the same file will always return the same result.  The same holds for listing directories,
+same position from the same file will always return the same result.  This holds for listing directories,
 querying file attributes etc. Setting metadata values or writing same data into the same file offset
 repeatedly is also idempotent. However, an {\it append} operation is not, because it writes to current end of
 file, which might have been changed by the previous {\it append}.
