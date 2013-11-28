@@ -356,7 +356,7 @@ operation itself is state and it is lost in case of failure.
 
 Idempotence is the property of operations where subsequent applications of the same operation do not change
 the initial result. In the context of a file transfer protocol, this means that repeating a particular command
-with particular arguments any number of times will cause at most one change to the server filesystem.
+with particular arguments any number of times will cause at most one set of changes to the server filesystem.
 Ideally, each invocation will also return the same result.
 
 This is very useful for recovering from network failures. If the client issues a request and does not receive
@@ -367,11 +367,10 @@ intends to repeat the same request for the second time. Idempotent operations en
 matter: the server can perform the operation again safely, without doing something the client did not intend.
 
 Read operations are idempotent by nature. Unless another user or process modifies the filesystem, reading the
-same position from the same file will always return the same result - and in case the filesystem is modified
-externally between the calls, the client can simply rely on the newest result. The same holds for listing
-directories, querying file attributes etc.  Setting metadata values or writing same data into the same file
-offset repeatedly is also idempotent.  However, an {\it append} operation is not, because it writes to current
-end of file, which might have been changed by the previous {\it append}.
+same position from the same file will always return the same result.  The same holds for listing directories,
+querying file attributes etc. Setting metadata values or writing same data into the same file offset
+repeatedly is also idempotent. However, an {\it append} operation is not, because it writes to current end of
+file, which might have been changed by the previous {\it append}.
 
 Rename and delete operations are idempotent in the sense that repeating the operation will not cause further
 changes. However, the first successful application will remove the source file, and subsequent attempts might
@@ -379,18 +378,30 @@ result in an error. This should not matter to the client: for deletion, the desi
 accomplished; and for rename, it is easy to query the supposed new path in order to distinguish between
 external modification and previous operation succeeding.
 
-Similar is true for creating files\footnote{Unless creating is implicit in a write operation, in which case
-the write operation discussion applies.} and directories. Once the first create operation succeeds, subsequent
-applications will fail because the object already exists. There is an important caveat, though: in the absence
-of better locking mechanisms, some programs use temporary files and especially directories to indicate that
-a lock on a particular resource is held. For this usecase, it is very important to distinguish whether the
-create operation succeeded (the caller now holds the lock) or failed (somebody else holds the lock). This is
-virtually impossible in a stateless protocol, and difficult in a stateful one as well. The server would need
-to retain state even for some time after the connection is lost, it would have to match reconnection attempts
-to previously lost connections, recognize that a seemingly live connection on the server is actually already
-lost on the client's end and so on. Protocols might choose not to support this scenario - even if done
-properly, directory-based locking is prone to deadlocks anyway, so it might be more efficient to spend efforts
-on a proper locking mechanism.
+The operations mentioned so far lose their idempotence properties when interacting with other clients. Even
+a repeated read can give different results if the file is externally modified at the same time, and can even
+return an error when another client removes the file. This is unavoidable without proper locking, but replay
+attempts exacerbate the problem by enlarging vulnerable windows and introducing new faulty interaction modes,
+such as repeatedly deleting a file placed by a different client.
+
+This is especially important to note with file and directory creation operations. When running alone, the
+situation is very similar to the rename and delete discussion: an operation will repeatedly fail after first
+successful attempt. However, in the absence of a dedicated locking mechanism, many programs use temporary
+files and especially directories to indicate that a lock on particular resource is held.  For this usecase, it
+is very important to distinguish whether the create operation succeeded (the caller now holds the lock) or
+failed (somebody else holds the lock).
+
+This problem is impossible to solve in a fully stateless protocol, and difficult in a stateful one as well. To
+prevent faulty replays, the server needs to retain results of recent operations for some time after the
+connection is lost, reliably identify connection failures, detect replay attempts on new connections and
+return the first result without performing the operation repeatedly. This must be done with care, so that even
+malicious actors cannot trigger the replay detection for other clients.
+
+Maintaining idempotence in concurrent environment does not solve the race conditions, and the directory
+locking method is prone to deadlocks anyway. Given that, it is usually not worth the effort to try to solve
+this problem fully, opting instead for a dedicated locking mechanism. However, there is value in implementing
+mitigation strategies - such as a less sophisticated detection method that does not attempt to cover all
+scenarios.
 
 
 \subsection{Client-side caching}
