@@ -1,37 +1,84 @@
-% vim: tw=110:fo=an1lt
+% vim: tw=110:fo=an1lt:nosmartindent
 
 \chapter{Design of the new protocol}
 
-This chapter describes the newly developed protocol, which we will call NewTP, as a play on FTP. First, we
-examine the choices of protocol properties and describe the tradeoffs we had to make to achieve these
-properties. Then we describe ...something else.
+We have developed a new file transfer protocol called NewTP (as a play on FTP, the original file transfer
+protocol). This chapter describes the design decisions that went into the development, how the protocol
+operates and what features it provides. We also describe how the extension mechanism works and define several
+extensions.
 
-TODO
+%%
 
 \section{Design decisions}
 
-what sort of features we want, what sort of tradeoffs we had to accomplish
+The protocol is intended as a lightweight file transfer protocol with some filesystem-like features. We wanted
+to limit its feature set for ease of implementation, provide reasonable performance on high-latency networks,
+ensure cross-platform interoperability in today's computing environments, and make the protocol secure by
+default.
 
 \subsection{Supported scenarios}
 
-We want this to be used for "public fileservers" on firewalled home networks, fast-setup for sharing between
-machines on a public network, secure fileservers on the Internet, and possibly also authenticated access for
-multi-account machines such as webhosting.
+NewTP is designed with three main usecases in mind.
+
+\subsubsection{Local fileserver}
+
+In this scenario, the NewTP server is placed on a private local network or a VPN and provides a shared
+document and multimedia store for its users. The network is considered a trusted environment, and the server
+assumes that clients allowed to connect to the network are automatically entitled to access the document
+store.  Encryption is not essential and authentication is completely unnecessary. Filesystem-like features are
+desirable for operating system integration, but advanced locking and conflict resolution features are not
+required, because conflicts will usually be resolved on the human level. This is the case for file servers or
+media centers on home networks. Users in this scenario don't necessarily have technical background, so neither
+the protocol nor its implementations should place any barriers to ease of use.
+
+\subsubsection{Temporary share on a public network}
+
+Users connected to the same network want to quickly exchange files. One of them sets up a NewTP server on
+their computer, the others connect to it and download the published files or upload their own data. After all
+transfers are done, the server is shut down. The network is assumed to be untrusted - it might be an open WiFi
+in a restaurant or a shared building-wide LAN - so we require encryption, authentication and MitM protection.
+However, the users are assumed to have a communication side-channel, such as close physical proximity, so
+there is no need for any sort of PKI. The emphasis is on the ability to set up a server quickly, without
+complicated supporting infrastructure. Ideally, both server and client software are implemented as portable
+executables that the users can download and run with minimum of configuration. Filesystem-like features are
+not required, because the users only need upload, download and directory manipulation capabilities.
+
+\subsubsection{Shared Internet fileserver}
+
+A web hosting or cloud storage provider sets up a NewTP server connected to the Internet. Clients of the
+provider are issued credentials and use the NewTP protocol to access their files. Obviously, encryption and
+MitM protection is required. However, in this scenario, it is more difficult to verify authenticity of the
+server. Its certificate must either be verifiable through a PKI, or a through a side-channel such as physical
+mail.  Implementations should also check for certificate changes.
+
+A single server will be serving multiple users, so the protocol must provide user accounts and the
+implementation will publish different parts of the filesystem based on which user account is authenticated.
+Users will be using both dedicated NewTP clients and operating system integration, so filesystem-like
+features, although not strictly required, are strongly desirable.
+
 
 \subsection{Simplicity}
 
-everyone wants simple, and for everyone it means different things. for us, that means that we limit core
-feature set, leaving more complex behaviors to extensions.
+Simplicity means different things to different people and in different contexts. In case of NewTP, we want to
+ensure that the protocol is simple to implement and use properly. The core feature set is small and
+variability of commands is limited. Individual commands mostly correspond to how the operating system works
+with filesystems, so each command can usually be implemented with one or two system calls on the server - and
+on the client, it is easy to replicate common file operations with calls over the network. In difficult cases,
+we opt for less complex solutions that work well for our supported scenarios, even if they do not perfectly
+cover corner cases.
 
-\subsection{Low latency}
+Simplicity is also the reason for choosing TCP as the transport layer. This way, the protocol does not need to
+concern itself with lost or out-of-order packets.
 
-We want good interleaving on single connection because connection setup takes too long, and we want the
-ability to accomplish most operations with one send. This also supports use as a mounted filesystem. We don't
-aim for full statelessness because we want to minimize overhead, so no repeating.
+\subsection{Encryption by default}
 
-As a result, we limit request and response sizes to 64kB.
+Protocols designed before the rise of Internet usually provide encryption as an optional feature. This leads
+to widespread practice of using unencrypted connections on insecure public networks. We want to avoid this
+practice with NewTP. Therefore, the protocol mandates use of TLS 1.2 or later for the whole duration of the
+connection.  Furthermore, we recommend that implementations use the highest available version of TLS at
+a given time, and disable weak ciphersuites.
 
-\subsection{Encrypted by default}
+TODO
 
 We prescribe TLS encryption, and strongly recommend at least TLS 1.2 with good algorithms. Reference
 implementation uses GnuTLS. We need to manage server certificates somehow. Self-signed certs are explicitly
@@ -39,7 +86,19 @@ allowed. Every certificate must be pinned and checked against on subsequent conn
 does). No bullshit like load-balancing over two servers with two different certificate authorities is allowed.
 (what about allowing multiple certificates from same authority?)
 
+\subsection{Low latency}
+
+TODO
+
+We want good interleaving on single connection because connection setup takes too long, and we want the
+ability to accomplish most operations with one send. This also supports use as a mounted filesystem. We don't
+aim for full statelessness because we want to minimize overhead, so no repeating.
+
+As a result, we limit request and response sizes to 64kB.
+
 \subsection{Authentication is optional}
+
+TODO
 
 We want to support "public fileservers" on home networks, but allow authentication when more privacy is
 needed. All implementations that allow authentication must support password-only auth (because "dorm network"
@@ -52,6 +111,8 @@ Do we need to do something special to support OAuth? How about twofactor auth?
 TODO
 
 \subsection{Path string encoding}
+
+TODO
 
 We use UTF-8 for everything everywhere. But we want to support undecodable filenames as well, so for them, we
 reserve an Unicode private range, and each undecodable character is sent as 0x123456 + its byte value.

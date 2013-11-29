@@ -32,11 +32,11 @@ internationalized encodings.
 FTP does not support transfer interleaving and one control connection can only support one data transfer at
 a time. Furthermore, there is no support for ranged reads and writes.  It is possible to seek to a specified
 point in a file before performing a data transfer, and it is possible to stop the transfer at an arbitrary
-point, but this must be done in real time, and a new connection must be opened for each data transfer
-connection. This makes FTP particularly unsuitable for filesystem-like operation.
+point, but this must be done in real time, and a new connection must be opened for each data transfer.  This
+makes FTP particularly unsuitable for filesystem-like operation.
 
 Users authenticate themselves with user name, password and optionally an account name. The protocol specifies
-no encryption, so all information is transferred in plain text. RFC~4217~\cite{rfc4217} specifies a variant of
+no encryption, so all information is transfered in plain text. RFC~4217~\cite{rfc4217} specifies a variant of
 FTP that uses TLS for encryption. However, this makes FTP traffic opaque, so special care must be taken when
 firewalls or NATs are involved.
 
