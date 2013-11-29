@@ -53,7 +53,7 @@ this: either as human-readable text, or as custom binary data.
 
 In text-based protocols, each message is a string of words and/or numbers, nowadays usually encoded as ASCII
 or UTF-8. Many such protocols also use line separator characters to delimit messages. The main advantage of
-this approach is that it is readable (and writable) by humans without specialized debugging tools - for
+this approach is that it is readable (and writable) by humans without specialized debugging tools -- for
 instance, it is possible to communicate with the other party by typing out commands, without software
 implementing the protocol.  Historically, there was also the fact that two communicating systems only had to
 agree on text encoding, and not about in-memory format of numbers or other data structures.
@@ -70,7 +70,7 @@ dumping the memory representation of a corresponding C struct directly. On moder
 will be memory-aligned and will contain some amount of padding. This can differ between systems, compilers,
 and can even depend on particular compiler flags.} This results in shorter messages and simpler encoding. If
 the in-memory encoding is the same as in the protocol, encoding and decoding can even be skipped completely.
-Parsing and framing is trivial - every kind of message can either have a fixed number of fixed-size fields, or
+Parsing and framing is trivial -- every kind of message can either have a fixed number of fixed-size fields, or
 it can have a fixed-size part describing lengths of all variable-size fields.
 
 Care must be taken when communicating between systems that differ in endianness.  The protocol either has to
@@ -83,7 +83,7 @@ the binary messages to understandable text.
 \subsection{Roles}
 
 We recognize two basic roles for communicating parties: {\it client} and {\it server}. Client is the party
-that sends requests - specifies what is to be done - and server's task is to fulfil the requests and report on
+that sends requests -- specifies what is to be done -- and server's task is to fulfil the requests and report on
 results.
 
 Most protocols are modelled as client-server, with roles of the parties fixed in advance. Typically, the
@@ -113,7 +113,7 @@ current directory} and paths relative to the current directory. Relative path ca
 ``\texttt{.}'' (refers to current directory) and ``\texttt{..}'' (parent directory).\footnote{For security
 reasons, protocol should prescribe, and implementations enforce, that ``\texttt{.}'' and ``\texttt{..}''
 components are forbidden in an absolute path.} In some cases, it can be useful to expose this functionality
-through the protocol - either allowing the client to choose the current directory, or setting it at a fixed
+through the protocol -- either allowing the client to choose the current directory, or setting it at a fixed
 path (e.g.  authenticated user's home directory).
 
 \subsubsection{Validity of path string}
@@ -173,7 +173,7 @@ a database, download only thumbnail or embedded metadata etc.
 
 Transfering from client to server is more complicated. In addition to checking for permissions, the server
 must ensure that there is enough disk space, resolve issues with overwriting existing files, as well as
-gracefully handle concurrent modifications. There might also be issues with missing path components - trying
+gracefully handle concurrent modifications. There might also be issues with missing path components -- trying
 to create file in a directory that does not exist. This results in several new failure modes that must be
 expressed in the protocol. However, at this level, it is sufficient to add new error codes, or specify that
 a single error code covers many different types of failure.
@@ -236,7 +236,7 @@ operation whenever necessary. Another possibility is to make filesystem informat
 Apart from contents of files and directories, the filesystem stores metadata about entries: file size,
 creation date, last modification date, filesystem attributes, ownership and access rights, link count etc.
 Although it is not essential, a full-featured protocol will expose operations to query and modify this kind of
-metadata. It is also very useful to send this information along with directory listing - querying each entry
+metadata. It is also very useful to send this information along with directory listing -- querying each entry
 in a directory with hudreds or thousands of files would be woefully inefficient. On the other hand, it might
 be useful to specify what kind of metadata to include in the listing.
 
@@ -286,7 +286,7 @@ parties. It would be unwise to transmit anything without encryption, especially 
 that might potentially be used to work with confidential data.
 
 A good encryption scheme must also include resistance to Man-in-the-Middle attacks. Basically, a client must
-be able to verify authenticity of the server - otherwise an attacker could impersonate the server, rendering
+be able to verify authenticity of the server -- otherwise an attacker could impersonate the server, rendering
 on-the-wire encryption pointless. This is, in general, a hard problem. Either the client must know the server
 (or rather its public key) in advance, or it needs to trust a third party that can vouch for the server's
 identity, possibly through a chain of intermediary trusted parties. However, neither of the options might be
@@ -400,18 +400,18 @@ malicious actors cannot trigger the replay detection for other clients.
 Maintaining idempotence in concurrent environment does not solve the race conditions, and the directory
 locking method is prone to deadlocks anyway. Given that, it is usually not worth the effort to try to solve
 this problem fully, opting instead for a dedicated locking mechanism. However, there is value in implementing
-mitigation strategies - such as a less sophisticated replay detection method that does not attempt to cover
+mitigation strategies -- such as a less sophisticated replay detection method that does not attempt to cover
 all scenarios.
 
 
 \subsection{Client-side caching}
 
-Applications that directly implement a network protocol tend to ``know how to use it'' - how to perform their
+Applications that directly implement a network protocol tend to ``know how to use it'' -- how to perform their
 actions and service user requests in a manner that is efficient over the given network protocol. For instance,
 a file manager with network support can use operations like server-side copy; a media player knows which parts
 of the file are required for complete playback and which can be discarded after a seek; database editor can
 efficiently predict which blocks to read ahead depending on what operation the user is performing.
-Furthermore, in day-to-day operation, users can work with stale data that is minutes or even hours old - and
+Furthermore, in day-to-day operation, users can work with stale data that is minutes or even hours old -- and
 where required, the application can provide a ``refresh'' function to invalidate caches manually.
 
 This is not the case when the protocol is used to emulate a local filesystem. In such situation, the

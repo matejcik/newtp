@@ -35,8 +35,8 @@ the protocol nor its implementations should place any barriers to ease of use.
 
 Users connected to the same network want to quickly exchange files. One of them sets up a NewTP server on
 their computer, the others connect to it and download the published files or upload their own data. After all
-transfers are done, the server is shut down. The network is assumed to be untrusted - it might be an open WiFi
-in a restaurant or a shared building-wide LAN - so we require encryption, authentication and MitM protection.
+transfers are done, the server is shut down. The network is assumed to be untrusted -- it might be an open WiFi
+in a restaurant or a shared building-wide LAN -- so we require encryption, authentication and MitM protection.
 However, the users are assumed to have a communication side-channel, such as close physical proximity, so
 there is no need for any sort of PKI. The emphasis is on the ability to set up a server quickly, without
 complicated supporting infrastructure. Ideally, both server and client software are implemented as portable
@@ -62,7 +62,7 @@ features, although not strictly required, are strongly desirable.
 Simplicity means different things to different people and in different contexts. In case of NewTP, we want to
 ensure that the protocol is simple to implement and use properly. The core feature set is small and
 variability of commands is limited. Individual commands mostly correspond to how the operating system works
-with filesystems, so each command can usually be implemented with one or two system calls on the server - and
+with filesystems, so each command can usually be implemented with one or two system calls on the server -- and
 on the client, it is easy to replicate common file operations with calls over the network. In difficult cases,
 we opt for less complex solutions that work well for our supported scenarios, even if they do not perfectly
 cover corner cases.
@@ -139,7 +139,7 @@ How the new protocol actually operates?
 
 \subsection{Packet format notation}
 
-Basically the same as in RFC 4251 - byte, uint16 etc.
+Basically the same as in RFC 4251 -- byte, uint16 etc.
 
 \subsection{File handles}
 
@@ -167,7 +167,7 @@ client simply disconnects and server discards all (most?) state.
 
 \subsection{Example session}
 
-TODO - only a table?
+TODO -- only a table?
 
 %%
 
@@ -213,7 +213,7 @@ Complete list of core commands, with descriptions, arguments, etc.
 
 \section{Result codes}
 
-TODO - only a table?
+TODO -- only a table?
 
 %%
 
