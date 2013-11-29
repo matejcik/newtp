@@ -183,7 +183,7 @@ protocol, but a future revision might introduce an extension with this functiona
 \subsection{Non-idempotent operations}
 
 Since native locking is not part of the protocol, we make an attempt to minimize problems with directory-based
-locking and mitigate potential problems with non-idempotent operations. To this end, we have designed
+locking and mitigate potential issues with non-idempotent operations. To this end, we have designed
 a ``Replay'' extension. After establishing a session and authenticating, the client can ask for a unique
 session token. If the connection is lost, the client can reconnect, and after a successful authentication, ask
 for a replay of the session identified by that token. The server will reply with results for the last few
