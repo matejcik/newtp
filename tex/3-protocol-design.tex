@@ -70,41 +70,63 @@ cover corner cases.
 Simplicity is also the reason for choosing TCP as the transport layer. This way, the protocol does not need to
 concern itself with lost or out-of-order packets.
 
-\subsection{Encryption by default}
+\subsection{Secure by default}
 
 Protocols designed before the rise of Internet usually provide encryption as an optional feature. This leads
 to widespread practice of using unencrypted connections on insecure public networks. We want to avoid this
-practice with NewTP. Therefore, the protocol mandates use of TLS 1.2 or later for the whole duration of the
-connection.  Furthermore, we recommend that implementations use the highest available version of TLS at
-a given time, and disable weak ciphersuites.
+practice with NewTP. Therefore, the protocol mandates use of TLS 1.2 or later for every connection.
+Furthermore, we recommend that implementations use the highest available version of TLS at a given time, and
+disable weak ciphersuites.
 
-TODO
+Especially in the ``local fileserver'' and ``temporary share'' scenarios, it is unrealistic to expect that the
+users would obtain a certificate from a trusted certificate authority, much less roll their own.
+Implementations must allow self-signed certificates by default, and for ease of use, server applications
+should generate their own certificates automatically. To ensure that attacker does not impersonate
+a legitimate server with a brand new self-signed certificate, clients should remember certificates on first
+connection and warn the user if the certificate has changed.\footnote{This practice is known as {\it
+certificate pinning}.}
 
-We prescribe TLS encryption, and strongly recommend at least TLS 1.2 with good algorithms. Reference
-implementation uses GnuTLS. We need to manage server certificates somehow. Self-signed certs are explicitly
-allowed. Every certificate must be pinned and checked against on subsequent connections (basically what ssh
-does). No bullshit like load-balancing over two servers with two different certificate authorities is allowed.
-(what about allowing multiple certificates from same authority?)
+We attempted to design NewTP so that implementing it does not easily lead to buffer overflows.  Packet size is
+limited to 64 kB, so every packet can fit into a fixed-size buffer. The protocol is binary and most packet
+structures have a predefined size. Strings are not null-terminated, so the implementation is forced to use the
+corresponding length field. Same is true for lists of structs. Simplicity of the protocol also means that the
+client can't easily tie up excessive amounts of server processing power with short requests.
 
 \subsection{Low latency}
 
-TODO
+Given that the protocol is using TLS on top of TCP, establishing a connection takes a nontrivial amount of
+time. This is even more true on high-latency networks like GPRS/EDGE. We want to make operation on such
+networks as painless as possible. That means good support for interleaving of operations on a single
+connection, and reducing size of protocol messages.
 
-We want good interleaving on single connection because connection setup takes too long, and we want the
-ability to accomplish most operations with one send. This also supports use as a mounted filesystem. We don't
-aim for full statelessness because we want to minimize overhead, so no repeating.
+The choice of a binary protocol results in smaller messages. The short maximum packet length means that in the
+ideal case, after a new operation is inserted into the outgoing stream, the client downloads at most 64 kB of
+data before receiving a response for the newly inserted operation. In practice, clients on high-latency
+networks will batch requests, so that when the new operation is inserted, it has to wait before the whole
+preceding batch is processed. However, there is room for implementations to perform a sort of flow control and
+send batched messages only as fast as they can receive responses, in which case it is possible to interleave
+the batch midway through.
 
-As a result, we limit request and response sizes to 64kB.
+This sort of interleaving rules out long operations, which is helpful even on fast networks. It means that it
+is easy to implement a responsive filesystem emulation on top of NewTP.
+
+The obvious drawback is that transfer overhead is relatively big, compared to protocols with packets in the
+megabyte range. However, XXX bytes of overhead per 64 kB of payload works out to XXX \% more data, which is
+acceptable.
 
 \subsection{Authentication is optional}
 
-TODO
+In the ``local fileserver'' scenario, we don't want the clients to authenticate. In the ``temporary share'',
+the authentication is supposed to be short and simple, probably based on a passphrase. In the ``Internet
+fileserver'' scenario, strongest possible authentication is required, possibly including client certificates
+or two-factor authentication. Therefore, we must support several authentication mechanisms within the same
+protocol.
 
-We want to support "public fileservers" on home networks, but allow authentication when more privacy is
-needed. All implementations that allow authentication must support password-only auth (because "dorm network"
-scenario), we offer other options possibly through SASL. One of the options is client certificate.
-
-Do we need to do something special to support OAuth? How about twofactor auth?
+We decided to implement authentication through the SASL protocol~\cite{rfc4422}. This allows us to use a wide
+range of authentication mechanisms, ranging from anonymous access, to plaintext usernames and password, to
+digest-based authentication. Also, with SASL, new authentication mechanisms can be supported by
+implementations without changing the NewTP protocol. Reusing an existing technology (SASL is implemented by
+a number of widely available libraries) also reduces work for implementers.
 
 \subsection{Caching policy}
 
@@ -121,15 +143,6 @@ reserve an Unicode private range, and each undecodable character is sent as 0x12
 
 Since we won't support real locks, we will support create-directory locks. This requires certain amount of
 smartness on our side, and it's still far from perfect.
-
-\subsection{Security considerations}
-
-Here we briefly revisit encryption, and talk for a bit about DoSability. Also, we mention what requirements
-are there for the various scenarios.
-
-\subsection{Anything else?}
-
-TODO
 
 %%
 
