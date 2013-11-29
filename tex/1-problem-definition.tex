@@ -372,11 +372,11 @@ querying file attributes etc. Setting metadata values or writing same data into 
 repeatedly is also idempotent. However, an {\it append} operation is not, because it writes to current end of
 file, which might have been changed by the previous {\it append}.
 
-Rename and delete operations are idempotent in the sense that repeating the operation will not cause further
-changes. However, the first successful application will remove the source file, and subsequent attempts might
-result in an error. This should not matter to the client: for deletion, the desired result has apparently been
-accomplished; and for rename, it is easy to query the supposed new path in order to distinguish between
-external modification and previous operation succeeding.
+Rename and delete operations could be considered idempotent in the sense that repeating the operation will not
+cause further changes. However, the first successful application will remove the source file, and subsequent
+attempts might result in an error. This should not matter to the client: for deletion, the desired result has
+apparently been accomplished; and for rename, it is easy to query the supposed new path in order to
+distinguish between external modification and previous operation succeeding.
 
 The operations mentioned so far lose their idempotence properties when interacting with other clients. Even
 a repeated read can give different results if the file is externally modified at the same time, and can even
@@ -398,10 +398,9 @@ return the first result without performing the operation repeatedly. This must b
 malicious actors cannot trigger the replay detection for other clients.
 
 Maintaining idempotence in concurrent environment does not solve the race conditions, and the directory
-locking method is prone to deadlocks anyway. Given that, it is usually not worth the effort to try to solve
-this problem fully, opting instead for a dedicated locking mechanism. However, there is value in implementing
-mitigation strategies -- such as a less sophisticated replay detection method that does not attempt to cover
-all scenarios.
+locking method is prone to deadlocks anyway. Given that, many protocols do not try to solve this problem
+fully, opting instead for a dedicated locking mechanism. However, there is value in implementing mitigation
+strategies, such as a less sophisticated replay detection method that does not attempt to cover all scenarios.
 
 
 \subsection{Client-side caching}

@@ -9,12 +9,35 @@ extensions.
 
 %%
 
+\section{Overview}
+
+NewTP is a binary application protocol running on an encrypted channel with ordered and reliable delivery. It
+is designed with TCP + TLS in mind; for this version, use of TLS 1.2 or later is mandatory. Communication is
+split into packets with a fixed-length header and at most 64 kB of data. Client initiates all traffic. For
+every client request packet, server must send exactly one reply packet, and it must send the replies in the
+order in which it received the requests.
+
+After an initial handshake, client must authenticate itself using the SASL protocol~\cite{rfc4422}. Where
+appropriate, anonymous authentication mechanism will be available. A conforming implementation must support at
+least anonymous and password-based authentication.\footnote{That is, {\tt ANONYMOUS} and {\tt PLAIN} SASL
+mechanisms.}
+
+Once the session is established, client sends requests and receives replies in a common format. A request
+header contains code of the command, file handle to which it applies, arbitrarily chosen request ID, and
+length of data payload. The reply repeats the request ID, adds a result code and payload length.  Although
+this version of the protocol does not allow it, future revisions might let the server reorder replies, in
+which case the request ID will be used to match replies to corresponding requests.
+
+Core NewTP command set consists of ranged read, ranged write with implicit file creation, truncate operation,
+directory listing that includes selected metadata attributes, creating directories, delete and rename/move
+operations, metadata querying and manipulation. Additional commands can be added through an extension
+mechanism without changing the protocol.
+
 \section{Design decisions}
 
 The protocol is intended as a lightweight file transfer protocol with some filesystem-like features. We wanted
 to limit its feature set for ease of implementation, provide reasonable performance on high-latency networks,
-ensure cross-platform interoperability in today's computing environments, and make the protocol secure by
-default.
+ensure cross-platform interoperability, and make the protocol secure by default.
 
 \subsection{Supported scenarios}
 
@@ -62,10 +85,10 @@ features, although not strictly required, are strongly desirable.
 Simplicity means different things to different people and in different contexts. In case of NewTP, we want to
 ensure that the protocol is simple to implement and use properly. The core feature set is small and
 variability of commands is limited. Individual commands mostly correspond to how the operating system works
-with filesystems, so each command can usually be implemented with one or two system calls on the server -- and
-on the client, it is easy to replicate common file operations with calls over the network. In difficult cases,
-we opt for less complex solutions that work well for our supported scenarios, even if they do not perfectly
-cover corner cases.
+with filesystems, so each command can usually be implemented with one or two system calls on the server. On
+the client, it is easy to replicate common file operations with calls over the network. In difficult cases, we
+opt for less complex solutions that work well for our supported scenarios, even if they do not perfectly cover
+corner cases.
 
 Simplicity is also the reason for choosing TCP as the transport layer. This way, the protocol does not need to
 concern itself with lost or out-of-order packets.
@@ -78,7 +101,7 @@ practice with NewTP. Therefore, the protocol mandates use of TLS 1.2 or later fo
 Furthermore, we recommend that implementations use the highest available version of TLS at a given time, and
 disable weak ciphersuites.
 
-Especially in the ``local fileserver'' and ``temporary share'' scenarios, it is unrealistic to expect that the
+Especially in the ``local fileserver'' and ``temporary share'' scenarios, it is unrealistic to expect that
 users would obtain a certificate from a trusted certificate authority, much less roll their own.
 Implementations must allow self-signed certificates by default, and for ease of use, server applications
 should generate their own certificates automatically. To ensure that attacker does not impersonate
@@ -89,8 +112,10 @@ certificate pinning}.}
 We attempted to design NewTP so that implementing it does not easily lead to buffer overflows.  Packet size is
 limited to 64 kB, so every packet can fit into a fixed-size buffer. The protocol is binary and most packet
 structures have a predefined size. Strings are not null-terminated, so the implementation is forced to use the
-corresponding length field. Same is true for lists of structs. Simplicity of the protocol also means that the
-client can't easily tie up excessive amounts of server processing power with short requests.
+corresponding length field. Same is true for lists of structs. Where possible, length information is not
+duplicated so implementations cannot be fooled by a mismatch. Simplicity of the protocol also means that the
+client can't easily tie up disproportionately huge amounts of server processing power with a small number
+of~requests.
 
 \subsection{Low latency}
 
@@ -99,50 +124,76 @@ time. This is even more true on high-latency networks like GPRS/EDGE. We want to
 networks as painless as possible. That means good support for interleaving of operations on a single
 connection, and reducing size of protocol messages.
 
-The choice of a binary protocol results in smaller messages. The short maximum packet length means that in the
-ideal case, after a new operation is inserted into the outgoing stream, the client downloads at most 64 kB of
-data before receiving a response for the newly inserted operation. In practice, clients on high-latency
-networks will batch requests, so that when the new operation is inserted, it has to wait before the whole
-preceding batch is processed. However, there is room for implementations to perform a sort of flow control and
-send batched messages only as fast as they can receive responses, in which case it is possible to interleave
-the batch midway through.
+The choice of a binary protocol results in smaller messages. In addition, we recommend enabling TLS
+compression. The short maximum packet length means that in the ideal case, after a new operation is inserted
+into the outgoing stream, the client downloads at most 64 kB of data before receiving a response for the newly
+inserted operation. In practice, clients on high-latency networks will batch requests, so that when the new
+operation is inserted, it has to wait before the whole preceding batch is processed. However, there is room
+for implementations to perform flow control and send batched messages only as fast as they can receive
+responses, in which case it is possible to insert commands midway through.
 
 This sort of interleaving rules out long operations, which is helpful even on fast networks. It means that it
 is easy to implement a responsive filesystem emulation on top of NewTP.
 
-The obvious drawback is that transfer overhead is relatively big, compared to protocols with packets in the
-megabyte range. However, XXX bytes of overhead per 64 kB of payload works out to XXX \% more data, which is
-acceptable.
+Transfer overhead works out to 22 bytes per 64 kB when using maximum possible packet size. To put this in
+perspective, when downloading 2 GB of data at top speed, protocol overhead will consume additional 720 kB.
+This is perfectly acceptable.
 
 \subsection{Authentication is optional}
 
 In the ``local fileserver'' scenario, we don't want the clients to authenticate. In the ``temporary share'',
 the authentication is supposed to be short and simple, probably based on a passphrase. In the ``Internet
 fileserver'' scenario, strongest possible authentication is required, possibly including client certificates
-or two-factor authentication. Therefore, we must support several authentication mechanisms within the same
-protocol.
+or two-factor authentication.
 
-We decided to implement authentication through the SASL protocol~\cite{rfc4422}. This allows us to use a wide
-range of authentication mechanisms, ranging from anonymous access, to plaintext usernames and password, to
-digest-based authentication. Also, with SASL, new authentication mechanisms can be supported by
-implementations without changing the NewTP protocol. Reusing an existing technology (SASL is implemented by
-a number of widely available libraries) also reduces work for implementers.
+We decided to implement authentication through the SASL protocol. This allows us to use a wide range of
+authentication mechanisms, ranging from anonymous access, to plaintext usernames and password, to digest-based
+authentication. Also, with SASL, new authentication mechanisms can be supported by implementations without
+changing the NewTP protocol. Reusing an existing technology (SASL is implemented by a number of widely
+available libraries) also reduces work for implementers.
+
+The fact that SASL supports anonymous authentication allows us to make the SASL process mandatory, while still
+technically keeping authentication optional. This again simplifies the protocol.
+
+\subsection{Concurrency is out of scope}
+
+NewTP is intended to service usecases with minimal interactions between users and negligible amounts of
+conflicts. Because of that, we decided not to put any locking mechanisms into the protocol. Locking is
+a decidedly complex problem in itself, and it is not a problem that NewTP is trying to solve.
+
+We take concurrency issues into consideration and make reasonable attempts to prevent or solve them. We expect
+that locking mechanisms could be implemented as protocol extensions, either by third parties or in a future
+revision of the protocol. In general, however, we consider reliable concurrency to be out of scope, and
+recommend using a different protocol for scenarios that require it.
 
 \subsection{Caching policy}
 
-TODO
+In this version of the protocol, clients are fully responsible for managing their caches.  Depending on the
+application, a client should periodically check freshness of relevant data.  For filesystem emulation, clients
+should check cache freshness every time a file is opened, and perform server write when the file is closed.
+In addition, it is advisable to refresh directory cache at reasonable intervals, e.g. once a minute.  (XXX
+really?)
 
-\subsection{Path string encoding}
+We considered adding a mechanism through which the server could request cache invalidation. However, since all
+traffic is initiated by the client, server has no mechanism to send unsolicited updates. Adding such mechanism
+would complicate client implementations and we did not want that. Alternately, clients could register watched
+items and then use a single command to poll their status periodically. We did not make this a part of the core
+protocol, but a future revision might introduce an extension with this functionality.
 
-TODO
+\subsection{Non-idempotent operations}
 
-We use UTF-8 for everything everywhere. But we want to support undecodable filenames as well, so for them, we
-reserve an Unicode private range, and each undecodable character is sent as 0x123456 + its byte value.
+Since native locking is not part of the protocol, we make an attempt to minimize problems with directory-based
+locking and mitigate potential problems with non-idempotent operations. To this end, we have designed
+a ``Replay'' extension. After establishing a session and authenticating, the client can ask for a unique
+session token. If the connection is lost, the client can reconnect, and after a successful authentication, ask
+for a replay of the session identified by that token. The server will reply with results for the last few
+non-idempotent operations recorded under the provided token. If the session is still alive on the server, it
+will be terminated to prevent late delivery of further commands. This way the client can resume after the last
+command that was successfully received by the server.
 
-\subsection{Directory creation}
-
-Since we won't support real locks, we will support create-directory locks. This requires certain amount of
-smartness on our side, and it's still far from perfect.
+Security of this extension is ensured by using tokens that are long enough to prevent guessing, and only
+providing the replay to the same user account. Implementations might also check that the new connection is
+coming from the same host as the old one.
 
 %%
 
@@ -154,29 +205,37 @@ How the new protocol actually operates?
 
 Basically the same as in RFC 4251 -- byte, uint16 etc.
 
+\subsection{Path string encoding}
+
+All filenames and path strings must be encoded as UTF-8. Clients and servers must perform transcoding from
+system-native filename encoding to UTF-8.
+
+To support filenames that are undecodable in the system encoding, NewTP uses roundtrip-safe transcoding of
+undecodable bytes. TODO
+
 \subsection{File handles}
 
 are everything. You first need to assign a path to a handle, then you can do whatever with it. Handles can
-have state: position in file or in directory listing.
+have state: position in file or in directory listing. Handles reflect pathname, not the filesystem object,
+which can cause some problems.
 
 \subsection{Attributes}
 
-how we work with attributes: there's a predefined list that covers unices and windows, you can select which
-ones you want to get with directory listing, by default you get "whatever local stat() returns", server tells
-you what it is at start, you can reconfigure
+how we work with attributes: there are predefined lists, directory listing will return the default list for
+each entry and after that, a platform-dependent list. implementations may or may not use the second list.
 
 \subsection{Request and response packets}
 
-Each "packet" contains 16bit length of rest of the packet, followed by mandatory header, followed by
-(optional) arguments for current command. Request header contains command id, handle id and operation id.
-Response header contains operation id and return code. Smaller than 0x80 is OK, 0x80 and above is error. The
-codes have predefined meanings.
+Request header contains command id, handle id and operation id, plus length of payload. Payload may contain
+further arguments for the command. Response header contains payload length, operation id and return code.
+Smaller than 0x80 is OK, 0x80 and above is error.  The codes have predefined meanings.
 
 \subsection{Communication scheme}
 
-Client starts by sending hello, then it can authenticate if it wants, then it fires commands and gets
-responses. In the first version, responses come in the same order as commands. There is no QUIT command,
-client simply disconnects and server discards all (most?) state.
+Client starts by sending hello, then it authenticates, then it fires commands and gets responses.  In the
+first version, responses come in the same order as commands. There is no QUIT command, client simply
+disconnects and server discards all (most?) state. When establishing the session, different packet format is
+used, this way a future version only needs to keep the hello message and redefine other packets.
 
 \subsection{Example session}
 
@@ -188,23 +247,17 @@ TODO -- only a table?
 
 Complete list of core commands, with descriptions, arguments, etc.
 
-\subsection{PING}
-
-\subsection{HELLO}
-
 \subsection{ASSIGN}
 
 \subsection{STAT}
 
-\subsection{STATVFS}
+\subsection{SETATTR}
 
-\subsection{SEEK}
+\subsection{STATVFS}
 
 \subsection{READ}
 
 \subsection{WRITE}
-
-\subsection{APPEND}
 
 \subsection{TRUNCATE}
 
@@ -218,9 +271,6 @@ Complete list of core commands, with descriptions, arguments, etc.
 
 \subsection{READDIR}
 
-\subsection{SETATTR}
-
-\subsection{which-attributes-to-show-in-readdir}
 
 %%
 
@@ -233,11 +283,6 @@ TODO -- only a table?
 \section{Extensions}
 
 this section describes the concept of the extension mechanism and lists some extensions
-
-\subsection{Authentication}
-
-Authentication is optional, so it is implemented as an extension even though it is integral to the server. The
-server will advertise presence of the extension and that's how client knows it can authenticate.
 
 \subsection{Asynchronous operations}
 
@@ -252,3 +297,7 @@ Commands to read and set extended attributes.
 \subsection{Links}
 
 Separate extensions for hardlinks and softlinks? Each with one command: link this path to this new name.
+
+\subsection{Replay}
+
+Remember results of certain operations in the main process and replay them to whoever asks.
