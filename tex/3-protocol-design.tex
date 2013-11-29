@@ -135,8 +135,8 @@ responses, in which case it is possible to insert commands midway through.
 This sort of interleaving rules out long operations, which is helpful even on fast networks. It means that it
 is easy to implement a responsive filesystem emulation on top of NewTP.
 
-Transfer overhead works out to 22 bytes per 64 kB when using maximum possible packet size. To put this in
-perspective, when downloading 2 GB of data at top speed, protocol overhead will consume additional 720 kB.
+Transfer overhead works out to 24 bytes per 64 kB when using maximum possible packet size. To put this in
+perspective, when downloading 2 GB of data at top speed, protocol overhead will consume additional 786 kB.
 This is perfectly acceptable.
 
 \subsection{Authentication is optional}
