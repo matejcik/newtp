@@ -175,9 +175,9 @@ In addition, it is advisable to refresh directory cache at reasonable intervals,
 really?)
 
 We considered adding a mechanism through which the server could request cache invalidation. However, since all
-traffic is initiated by the client, server has no mechanism to send unsolicited updates. Adding such mechanism
-would complicate client implementations and we did not want that. Alternately, clients could register watched
-items and then use a single command to poll their status periodically. We did not make this a part of the core
+traffic is initiated by the client, server has no means to send unsolicited updates. Adding this would
+complicate client implementations and we did not want that. Alternately, clients could register watched items
+and then use a single command to poll their status periodically. We did not make this a part of the core
 protocol, but a future revision might introduce an extension with this functionality.
 
 \subsection{Non-idempotent operations}
