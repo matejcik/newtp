@@ -207,16 +207,19 @@ implementers.
 Packets are described in a C-style format, data type preceding field name. Various packets use data types
 defined as follows:
 
-\def\ttitem#1{ \item[\ttfamily #1] \hfill \\ }
-\begin{description}
+\def\ttitem#1{ \item[\ttfamily #1] }
+\begin{description}[leftmargin=1.7cm,style=sameline]
 	\ttitem{byte} An 8-bit value (octet). Bytes represent command codes, result codes and other fields
 		where the value is one of a fixed set of possibilities. The values are written out in
 		hexadecimal notation, e.g. {\tt 0x07}.
 	\ttitem{uint16} Unsigned 16-bit integer
+	\ttitem{uint32} Unsigned 32-bit integer
 	\ttitem{uint64} Unsigned 64-bit integer
-	\ttitem{string} Byte sequence of arbitrary length, representing a valid Unicode codepoint string
-		encoded in UTF-8. The field is not null-terminated. Length is not part of the {\tt string}
-		field, a separate {\tt uint16} length information must precede it.
+	\ttitem{time\_t} Unsigned 64-bit integer, representing time in microseconds since the start of UNIX
+		epoch (1 January 1970, 0:00:00 UTC)
+	\ttitem{string} Byte sequence of arbitrary length, representing a Unicode string encoded in UTF-8.
+		The field is not null-terminated. Length is not part of the {\tt string} field, a separate
+		{\tt uint16} length information must precede it.
 	\ttitem{data} Byte sequence of arbitrary length, representing arbitrary data. Same as {\tt string},
 		length must be specified separately.
 \end{description}
@@ -253,6 +256,11 @@ Paths and files in NewTP are referred to through file handles. The {\tt ASSIGN} 
 to a file handle, and subsequent commands use the file handle as an argument, instead of the path string. The
 purpose of this is to limit repeating of the potentially long path string.
 
+File handle ID is specified as a 16-bit unsigned integer. That means that at most 65536 handles are available
+to the client. Servers should provide as many handles as they can. At session initiation, server informs the
+client about how many handles are available; these must be consecutive handles numbered 0--$({\tt max\_handles}
+- 1)$. A conforming server must provide at least 16 handles.
+
 File handles do not necessarily refer to valid filesystem objects -- for example, to create a new directory,
 the client assigns the new path to a file handle and then issues a {\tt MAKEDIR} command on that handle.
 A file handle does not become invalid when the object it is pointing to is removed, and it does not follow
@@ -263,12 +271,125 @@ We wanted to avoid the necessity to open a file before writing, and the complexi
 ``persistent'' open-file handles on the server. This means that several common POSIX usage patterns are not
 directly supported: writing to a deleted or moved file recreates the original name instead of continuing to
 write to the new location (or to the ``ghost'' version). These usage patterns can be emulated on the client if
-necessary; making this work correctly in concurrent scenarios is out of scope for NewTP.
+necessary; replicating the POSIX semantics in concurrent scenarios is out of scope for NewTP.
 
-\subsection{Attributes}
+\subsection{Metadata}
 
-how we work with attributes: there are predefined lists, directory listing will return the default list for
-each entry and after that, a platform-dependent list. implementations may or may not use the second list.
+We define a set of basic attributes known about directory entries: entry type, size, creation time,
+modification time, access rights etc. Each item is assigned a name, data type and a code. Recognized
+attributes are listed in table~\ref{table:attributes}.
+
+When requesting directory listing, the client specifies a sequence of codes, and specified metadata is
+returned as part of each entry in the listing. Requested attributes from {\tt STAT} are specified in the same
+way. Filesystem-like clients will request the full list, clients that want to save bandwidth can only ask for
+attributes they are interested in.  Note that the full list is relatively long: three time fields and a size
+field add up to 32 bytes, which is often longer than the entry name.
+
+The {\tt SETATTR} call takes an attribute code and its new value. Only some attributes can be set, those are
+marked as ``writable'' in the table. However, the fact that an attribute is writable does not mean that the
+client has permission to set it.
+
+Extended attributes and ACLs are not supported in the core protocol, but support can be added via extensions.
+Extensions can also provide new attribute codes.
+
+\begin{table}[p]
+\begin{center}
+
+\def\tline#1#2#3{
+{\ttfamily #1} & {\ttfamily #2} & {\ttfamily #3}
+}
+\begin{tabular}{|lllcp{6cm}|}
+	\hline
+	Code & Name & Type & Writable & Value \\
+	\hline
+	\tline{0x00}{type}{byte} & No &
+		Directory entry type: \newline
+		{\tt 0x01} -- File \newline
+		{\tt 0x02} -- Directory \newline
+		{\tt 0x00} -- Other (e.g. device node) \newline
+		{\tt 0xFF} -- Error entry
+		\\
+	\tline{0x01}{rights}{byte} & No &
+		Bit mask of simplified access rights for~the current user account:\newline
+		{\tt 0x01} -- Read permission \newline
+		{\tt 0x02} -- Write permission \newline
+		{\tt 0x03} -- Read and write permission
+		\\
+	\tline{0x03}{size}{uint64} & No & File size in bytes \\
+	\tline{0x04}{device\_id}{uint32} & No &
+		Arbitrary ID of logical device on which this entry resides.
+		Entries within the same filesystem will have the same {\tt device\_id}
+		and entries on different filesystmes will differ. No other guarantees
+		are provided about the value.
+		\\
+	\tline{0x05}{links}{uint32} & No & Number of hard links to this entry \\
+	\tline{0x06}{time\_access}{time\_t} & Yes & Last accessed time \\
+	\tline{0x07}{time\_modified}{time\_t} & Yes & Last modification time \\
+
+	\hline
+	\multicolumn{5}{|c|}{\textit{POSIX-specific attributes}} \\
+	\hline
+
+	\tline{0x10}{posix\_mode}{uint32} & No &
+		File type and permissions as expressed in the {\tt st\_mode} field
+		of {\tt struct stat}.\newline
+		TODO split type and permissions into separate fields?
+		\\
+	\tline{0x11}{time\_ctime}{time\_t} & Yes & POSIX {\tt ctime} \\
+	\tline{0x12}{uid}{uint32} & Yes & User ID of owner \\
+	\tline{0x13}{gid}{uint32} & Yes & Group ID of owner \\
+
+	\hline
+	\multicolumn{5}{|c|}{\textit{Windows-specific attributes}} \\
+	\hline
+
+	\tline{0x20}{attributes}{uint32} & Yes & Windows file attributes \\
+	\tline{0x21}{time\_created}{time\_t} & Yes & Entry creation time \\
+
+	\hline
+\end{tabular}
+
+\end{center}
+\caption{Attribute codes, types and values}
+\label{table:attributes}
+\end{table}
+
+\subsection{Session initalization and authentication}
+
+After the TLS session is established, client introduces itself with the following packet:
+\begin{description}[parsep=1pt]
+	\ttitem{string newtp} \hfill \\
+		Fixed ASCII string ``{\tt NewTP}''
+	\ttitem{uint16 length} \hfill \\
+		Length of payload
+	\ttitem{uint16 version} \hfill \\
+		Protocol version
+\end{description}
+
+Here, ``payload'' refers to everything that comes after it. In this case, payload length is 2 (size of the
+{\tt version} field). Protocol version is 1. We specify the payload length for extensibility: in a future
+version, client might be sending more info in the initial packet. In version 1, only the version number is
+sent.
+
+\begin{samepage}
+Server replies with the following packet:
+\begin{description}[parsep=1pt]
+	\ttitem{string newtp} \hfill \\
+		Fixed ASCII string ``{\tt NewTP}''
+	\ttitem{uint16 length} \hfill \\
+		Length of payload
+	\ttitem{uint16 version} \hfill \\
+		Protocol version.
+	\ttitem{uint16 max\_handles} \hfill \\
+		Number of available file handles
+	\ttitem{uint16 max\_opendirs} \hfill \\
+		Number of directories available for simultaneous listing
+	\ttitem{uint16 authstr\_len} \hfill \\
+		Length of {\tt authstr}
+	\ttitem{string authstr} \hfill \\
+		
+\end{description}
+\end{samepage}
 
 \subsection{Request and response packets}
 
