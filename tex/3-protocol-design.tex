@@ -199,25 +199,71 @@ coming from the same host as the old one.
 
 \section{Building blocks}
 
-How the new protocol actually operates?
+This section describes mechanics of NewTP in greater technical detail. It should be useful as a reference for
+implementers.
 
 \subsection{Packet format notation}
 
-Basically the same as in RFC 4251 -- byte, uint16 etc.
+Packets are described in a C-style format, data type preceding field name. Various packets use data types
+defined as follows:
+
+\def\ttitem#1{ \item[\ttfamily #1] \hfill \\ }
+\begin{description}
+	\ttitem{byte} An 8-bit value (octet). Bytes represent command codes, result codes and other fields
+		where the value is one of a fixed set of possibilities. The values are written out in
+		hexadecimal notation, e.g. {\tt 0x07}.
+	\ttitem{uint16} Unsigned 16-bit integer
+	\ttitem{uint64} Unsigned 64-bit integer
+	\ttitem{string} Byte sequence of arbitrary length, representing a valid Unicode codepoint string
+		encoded in UTF-8. The field is not null-terminated. Length is not part of the {\tt string}
+		field, a separate {\tt uint16} length information must precede it.
+	\ttitem{data} Byte sequence of arbitrary length, representing arbitrary data. Same as {\tt string},
+		length must be specified separately.
+\end{description}
 
 \subsection{Path string encoding}
 
-All filenames and path strings must be encoded as UTF-8. Clients and servers must perform transcoding from
-system-native filename encoding to UTF-8.
+All filenames and path strings, expressed as {\tt string} fields in packet descriptions, must be encoded as
+UTF-8. Clients and servers must perform transcoding from system-native filename encoding to UTF-8 and back.
 
-To support filenames that are undecodable in the system encoding, NewTP uses roundtrip-safe transcoding of
-undecodable bytes. TODO
+To support filenames that are undecodable in the system encoding, NewTP uses a roundtrip-safe encoding scheme
+described in PEP~383~\cite{pep383}. In this scheme, an undecodable byte {\tt 0x80}--{\tt 0xFF} is converted to
+a lone surrogate codepoint {\tt U+DC80}--{\tt U+DCFF}, which is then encoded to a 3-byte sequence by the UTF-8
+algorithm. Upon receiving the string, reverse conversion or implementation-defined handling of the string is
+performed.
 
-\subsection{File handles}
+Surrogates are codepoints reserved for UTF-16 encoding of codepoints above the Basic Multilingual Plane. They
+are only valid as pairs in UTF-16, and not valid in UTF-8 at all. Therefore, a valid encoding cannot produce
+a string which contains a lone surrogate codepoint, so there are no conflicts with this encoding scheme. Note
+that this means that a string using this encoding scheme is not valid UTF-8. Implementations must be prepared
+to handle potential UTF-8 decoding errors.
 
-are everything. You first need to assign a path to a handle, then you can do whatever with it. Handles can
-have state: position in file or in directory listing. Handles reflect pathname, not the filesystem object,
-which can cause some problems.
+This encoding scheme does not cover all cases. Notably, in some encodings, bytes {\tt 0x00} through {\tt 0x7F}
+can be parts of undecodable sequences. These are not supported for security reasons: it might be possible to
+``smuggle in'' ASCII sequences such as `{\tt /..}', thus opening a new attack surface that must be checked by
+implementations. See PEP~383~\cite{pep383} for full discussion. In NewTP, such bytes are instead to be
+replaced by the Unicode replacement character {\tt U+FFFD}.
+
+Also note that certain encodings, such as Big5, cannot be roundtrip-safely decoded to Unicode, because
+multiple byte sequences map to the same Unicode codepoint. These are not supported by the core protocol.
+
+\subsection{Path strings and file handles}
+
+Paths and files in NewTP are referred to through file handles. The {\tt ASSIGN} command assigns a path string
+to a file handle, and subsequent commands use the file handle as an argument, instead of the path string. The
+purpose of this is to limit repeating of the potentially long path string.
+
+File handles do not necessarily refer to valid filesystem objects -- for example, to create a new directory,
+the client assigns the new path to a file handle and then issues a {\tt MAKEDIR} command on that handle.
+A file handle does not become invalid when the object it is pointing to is removed, and it does not follow
+externally moved files.\footnote{Although as a side-effect, the {\tt RENAME} command updates the file handle
+with the new path.}
+
+We wanted to avoid the necessity to open a file before writing, and the complexity associated with managing
+``persistent'' open-file handles on the server. This means that several common POSIX usage patterns are not
+directly supported: writing to a deleted or moved file recreates the original name instead of continuing to
+write to the new location (or to the ``ghost'' version). These usage patterns can be emulated on the client if
+necessary; making this work correctly in concurrent scenarios is out of scope for NewTP.
 
 \subsection{Attributes}
 
