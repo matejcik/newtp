@@ -395,17 +395,31 @@ Extensions can also provide new attribute codes.
 \subsection{Extension mechanism}
 \label{ssec:extensions}
 
+At session intialization, server sends a list of available extensions. Each extension is identified by a name,
+which must be unique, and an extension code, which can be dynamically assigned by the server. That means that
+the same extension can have different codes on different servers, or even between one session and another.
+
+Session code {\tt 0x00} is reserved for core protocol commands and must not be used in the extension list.
+Session codes {\tt 0x01}--{\tt 0x30} are reserved for standard extensions. Standard extensions will be
+mentioned in the extension list, but their code is fixed and guaranteed to be the same on all implementations.
+Server must not allocate extension codes in this range.
+
 \begin{samepage}
-Each extension field is sent in the following format:
+Server sends the extension list as a sequence of fields in the following format:
 \begin{description}[parsep=1pt]
 	\ttitem{byte extension\_code} \hfill \\
-		8-bit extension code. Must not be zero.
+		Extension code
 	\ttitem{uint16 extension\_name\_len} \hfill \\
 		Length of {\tt extension\_name}
 	\ttitem{string extension\_name} \hfill \\
 		Name of the extension
 \end{description}
 \end{samepage}
+
+Extensions can define new protocol commands and result codes, which are then referred to by the extension
+code. Extensions can also add new file attributes. Attribute codes do not use the extension code, so extension
+authors must ensure that their attribute codes do not conflict with another extension. Extensions may not modify
+existing commands or replies.
 
 %%
 
@@ -417,6 +431,30 @@ client starts the SASL authentication process. If that is successful, client can
 
 %
 
+\subsection{Framing}
+
+Every packet contains a field {\tt uint16 length}, usually denoted ``Length of payload''. This field contains
+total length, in bytes, of rest of the packet contents combined. Fields up to and including the {\tt length}
+field form the packet {\it header}, which must have a fixed length. Fields after the {\tt length} field form
+the packet {\it payload}. After encountering the {\tt length} field, an implementation should retrieve exactly
+that many bytes from the data stream to process the whole packet. If the packet is discarded, the
+implementation can resume parsing the data stream at that position and safely find the start of the next
+packet.
+
+Implementations must check that contents of the payload do not stretch beyond the end of the packet. Notably,
+if the payload contains variable-length fields with size specified inline, these must fit inside the packet.
+But even if the implementation only expects fixed-length fields, it must check whether the packet is long
+enough to contain them. If the expected or calculated length of payload exceeds {\tt length}, the packet is
+malformed and should be discarded.\footnote{If the server discards a packet, it must inform the client.} If
+the expected or calculated length of payload is smaller than {\tt length}, the implementation must ignore the
+remaining data -- these may contain fields that the implementation does not understand.
+
+Only the payload and not the packet header is framed through the {\tt length} field. We assume that if
+a communicating party does not understand the fixed-format header, the difference in protocol versions is too
+big to allow any sort of meaningful communication anyway.
+
+%
+
 \subsection{Session initalization}
 
 \begin{samepage}
@@ -425,15 +463,13 @@ After the TLS session is established, client introduces itself with the followin
 	\ttitem{string newtp} \hfill \\
 		Fixed ASCII string ``{\tt NewTP}''
 	\ttitem{uint16 length} \hfill \\
-		Length of payload
+		Length of payload (in this case, 2)
 	\ttitem{uint16 version} \hfill \\
 		Protocol version
 \end{description}
 
-Here, ``payload'' refers to everything that comes after it. In this case, payload length is 2 (size of the
-{\tt version} field). Protocol version is 1. We specify the payload length for extensibility: in a future
-version, client might be sending more info in the initial packet. In version 1, only the version number is
-sent.
+Protocol version is 1. We specify the payload length for extensibility: in a future version, client might be
+sending more info in the initial packet. In version 1, only the version number is sent.
 \end{samepage}
 
 \begin{samepage}
@@ -596,6 +632,43 @@ TODO define codes for success and failure
 %
 
 \subsection{Request and response packets}
+
+When the client is successfully authenticated, it can start sending {\it request} packets. Server will issue
+exactly one {\it response} packet for each request packet received, in the order of reception. Client can send
+any number of request packets without waiting for server reply. However, the server will process all requests
+from the batch even if some of them fail, so where required, the client has to wait for confirmation of
+success.
+
+\begin{samepage}
+Format of request packet is specified thus:
+\begin{description}[parsep=1pt]
+	\ttitem{uint16 request\_id} \hfill \\
+		Arbitrary request ID
+	\ttitem{byte extension} \hfill \\
+		Extension code, {\tt 0x00} for core command
+	\ttitem{byte command} \hfill \\
+		Command code
+	\ttitem{uint16 handle} \hfill \\
+		File handle
+	\ttitem{uint16 length} \hfill \\
+		Length of payload
+\end{description}
+Payload can contain arguments to the command, data to be written etc.
+\end{samepage}
+
+\begin{samepage}
+Format of reply packet is as follows:
+\begin{description}[parsep=1pt]
+	\ttitem{uint16 request\_id} \hfill \\
+		Request ID from corresponding request
+	\ttitem{byte extension} \hfill \\
+		Extension code, {\tt 0x00} for core result code
+	\ttitem{byte result} \hfill \\
+		Result code
+	\ttitem{uint16 length} \hfill \\
+		Length of payload
+\end{description}
+\end{samepage}
 
 Request header contains command id, handle id and operation id, plus length of payload. Payload may contain
 further arguments for the command. Response header contains payload length, operation id and return code.
