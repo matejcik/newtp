@@ -29,7 +29,7 @@ c_header = """\
 c_footer = ""
 
 def h_defs (name, format_str, len_list, fields):
-	return """\
+    return """\
 #define FORMAT_{name} "{format_str}"
 #define SIZEOF_{name}(s) ({len_list})
 int pack_{name} (char * const buf, struct {name} const * s);
@@ -65,40 +65,40 @@ int unpack_{name} (char const * const buf, struct {name} * s)
 """.format(locals())
 
 def cf_sendp (s, p, f):
-	return """\
+    return """\
 int send_%s_p (int sock, %s)
 {
-	char buf[SIZEOF_%s];
-	assert(pack(buf, FORMAT_%s, %s) == SIZEOF_%s);
-	return send_full(sock, buf, SIZEOF_%s);
+    char buf[SIZEOF_%s];
+    assert(pack(buf, FORMAT_%s, %s) == SIZEOF_%s);
+    return send_full(sock, buf, SIZEOF_%s);
 }
 """ % (s,p,s,s,f,s,s);
 
 def cf_send (s, f):
-	return """\
+    return """\
 int send_%s (int sock, struct %s * s)
 {
-	return send_%s_p (sock, %s);
+    return send_%s_p (sock, %s);
 }
 """ % (s,s,s,f);
 
 def make_format (p):
     fmt = []
-	for tp, name in p:
-		if tp == 'uint8_t': fmt.append('c')
-		elif tp == 'uint16_t': fmt.append('s')
-		elif tp == 'uint32_t': fmt.append('i')
-		elif tp == 'uint64_t': fmt.append('l')
-		elif tp == 'char *':
-			fmt.append('B')
-		elif tp.startswith('char['):
-			n = tp[5:6]
-			fmt.append(n)
-			fmt.append('B')
-		else:
-			print "unknown type:",tp
+    for tp, name in p:
+        if tp == 'uint8_t': fmt.append('c')
+        elif tp == 'uint16_t': fmt.append('s')
+        elif tp == 'uint32_t': fmt.append('i')
+        elif tp == 'uint64_t': fmt.append('l')
+        elif tp == 'char *':
+            fmt.append('B')
+        elif tp.startswith('char['):
+            n = tp[5:6]
+            fmt.append(n)
+            fmt.append('B')
+        else:
+            print "unknown type:",tp
 
-	return ''.join(fmt)
+    return ''.join(fmt)
 
 import re
 
@@ -117,37 +117,37 @@ items = []
 
 src = open('structs.h', 'r')
 for line in src:
-	line = line.strip()
-	if not struct:
-		match = start.match(line)
-		if match:
-			struct = match.group(1)
-			items = []
-	else:
-		match = item.match(line)
-		if match:
-			items.append((match.group(1), match.group(2)))
-		else:
-			match = end.match(line)
-			if match:
-				length, res, fmt, plist = genthings(items)
-				h.write(h_defs(struct, fmt, length))
-				h.write(h_recv_struct(struct))
-				h.write(h_send_struct(struct))
-				h.write(h_send_struct_params(struct,items))
-				h.write("\n")
+    line = line.strip()
+    if not struct:
+        match = start.match(line)
+        if match:
+            struct = match.group(1)
+            items = []
+    else:
+        match = item.match(line)
+        if match:
+            items.append((match.group(1), match.group(2)))
+        else:
+            match = end.match(line)
+            if match:
+                length, res, fmt, plist = genthings(items)
+                h.write(h_defs(struct, fmt, length))
+                h.write(h_recv_struct(struct))
+                h.write(h_send_struct(struct))
+                h.write(h_send_struct_params(struct,items))
+                h.write("\n")
 
-				recvs = ', '.join(map(lambda a: "&s->%s" % a, res))
-				c.write(cf_recv(struct, recvs))
-				c.write("\n")
-				sends = ', '.join(map(lambda a: "s->%s" % a, res))
-				c.write(cf_send(struct, sends))
-				c.write("\n")
-				c.write(cf_sendp(struct, plist, ', '.join(res)))
-				
-				struct = None
-			else:
-				print "not matched:",line
+                recvs = ', '.join(map(lambda a: "&s->%s" % a, res))
+                c.write(cf_recv(struct, recvs))
+                c.write("\n")
+                sends = ', '.join(map(lambda a: "s->%s" % a, res))
+                c.write(cf_send(struct, sends))
+                c.write("\n")
+                c.write(cf_sendp(struct, plist, ', '.join(res)))
+                
+                struct = None
+            else:
+                print "not matched:",line
 
 
 h.write(h_footer)
