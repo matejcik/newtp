@@ -33,15 +33,21 @@ directory listing that includes selected metadata attributes, creating directori
 operations, metadata querying and manipulation. Additional commands can be added through an extension
 mechanism without changing the protocol.
 
+%%
+
 \section{Design decisions}
 
 The protocol is intended as a lightweight file transfer protocol with some filesystem-like features. We wanted
 to limit its feature set for ease of implementation, provide reasonable performance on high-latency networks,
 ensure cross-platform interoperability, and make the protocol secure by default.
 
+%
+
 \subsection{Supported scenarios}
 
 NewTP is designed with three main usecases in mind.
+
+%
 
 \subsubsection{Local fileserver}
 
@@ -54,6 +60,8 @@ required, because conflicts will usually be resolved on the human level. This is
 media centers on home networks. Users in this scenario don't necessarily have technical background, so neither
 the protocol nor its implementations should place any barriers to ease of use.
 
+%
+
 \subsubsection{Temporary share on a public network}
 
 Users connected to the same network want to quickly exchange files. One of them sets up a NewTP server on
@@ -65,6 +73,8 @@ there is no need for any sort of PKI. The emphasis is on the ability to set up a
 complicated supporting infrastructure. Ideally, both server and client software are implemented as portable
 executables that the users can download and run with minimum of configuration. Filesystem-like features are
 not required, because the users only need upload, download and directory manipulation capabilities.
+
+%
 
 \subsubsection{Shared Internet fileserver}
 
@@ -79,6 +89,7 @@ implementation will publish different parts of the filesystem based on which use
 Users will be using both dedicated NewTP clients and operating system integration, so filesystem-like
 features, although not strictly required, are strongly desirable.
 
+%
 
 \subsection{Simplicity}
 
@@ -92,6 +103,8 @@ corner cases.
 
 Simplicity is also the reason for choosing TCP as the transport layer. This way, the protocol does not need to
 concern itself with lost or out-of-order packets.
+
+%
 
 \subsection{Secure by default}
 
@@ -117,6 +130,8 @@ duplicated so implementations cannot be fooled by a mismatch. Simplicity of the 
 client can't easily tie up disproportionately huge amounts of server processing power with a small number
 of~requests.
 
+%
+
 \subsection{Low latency}
 
 Given that the protocol is using TLS on top of TCP, establishing a connection takes a nontrivial amount of
@@ -139,6 +154,8 @@ Transfer overhead works out to 24 bytes per 64 kB when using maximum possible pa
 perspective, when downloading 2 GB of data at top speed, protocol overhead will consume additional 786 kB.
 This is perfectly acceptable.
 
+%
+
 \subsection{Authentication is optional}
 
 In the ``local fileserver'' scenario, we don't want the clients to authenticate. In the ``temporary share'',
@@ -155,6 +172,8 @@ available libraries) also reduces work for implementers.
 The fact that SASL supports anonymous authentication allows us to make the SASL process mandatory, while still
 technically keeping authentication optional. This again simplifies the protocol.
 
+%
+
 \subsection{Concurrency is out of scope}
 
 NewTP is intended to service usecases with minimal interactions between users and negligible amounts of
@@ -165,6 +184,8 @@ We take concurrency issues into consideration and make reasonable attempts to pr
 that locking mechanisms could be implemented as protocol extensions, either by third parties or in a future
 revision of the protocol. In general, however, we consider reliable concurrency to be out of scope, and
 recommend using a different protocol for scenarios that require it.
+
+%
 
 \subsection{Caching policy}
 
@@ -179,6 +200,8 @@ traffic is initiated by the client, server has no means to send unsolicited upda
 complicate client implementations and we did not want that. Alternately, clients could register watched items
 and then use a single command to poll their status periodically. We did not make this a part of the core
 protocol, but a future revision might introduce an extension with this functionality.
+
+%
 
 \subsection{Non-idempotent operations}
 
@@ -201,6 +224,8 @@ coming from the same host as the old one.
 
 This section describes various technical details pertaining to design and implementation of NewTP.
 
+%
+
 \subsection{Packet format notation}
 
 Packets are described in a C-style format, data type preceding field name. Various packets use data types
@@ -222,6 +247,8 @@ defined as follows:
 	\ttitem{data} Byte sequence of arbitrary length, representing arbitrary data. Same as {\tt string},
 		length must be specified separately.
 \end{description}
+
+%
 
 \subsection{Path string encoding}
 
@@ -248,6 +275,8 @@ replaced by the Unicode replacement character {\tt U+FFFD}.
 
 Also note that certain encodings, such as Big5, cannot be roundtrip-safely decoded to Unicode, because
 multiple byte sequences map to the same Unicode codepoint. These are not supported by the core protocol.
+
+%
 
 \subsection{Path strings and file handles}
 
@@ -277,6 +306,8 @@ We wanted to avoid the necessity to open a file before writing, and the complexi
 directly supported: writing to a deleted or moved file recreates the original name instead of continuing to
 write to the new location (or to the ``ghost'' version). These usage patterns can be emulated on the client if
 necessary; replicating the POSIX semantics in concurrent scenarios is out of scope for NewTP.
+
+%
 
 \subsection{Metadata}
 
@@ -359,11 +390,32 @@ Extensions can also provide new attribute codes.
 \label{table:attributes}
 \end{table}
 
+%
+
+\subsection{Extension mechanism}
+\label{ssec:extensions}
+
+\begin{samepage}
+Each extension field is sent in the following format:
+\begin{description}[parsep=1pt]
+	\ttitem{byte extension\_code} \hfill \\
+		8-bit extension code. Must not be zero.
+	\ttitem{uint16 extension\_name\_len} \hfill \\
+		Length of {\tt extension\_name}
+	\ttitem{string extension\_name} \hfill \\
+		Name of the extension
+\end{description}
+\end{samepage}
+
+%%
+
 \section{Communication scheme}
 
 After establishing the TCP connection and successful TLS handshake, the client starts session initialization,
 through which it agrees on a common version with the server. If the session was initialized successfully,
 client starts the SASL authentication process. If that is successful, client can start sending commands.
+
+%
 
 \subsection{Session initalization}
 
@@ -401,6 +453,10 @@ Server replies with the following packet:
 		Length of {\tt authstr}
 	\ttitem{string authstr} \hfill \\
 		List of supported SASL authentication mechanisms, separated by ASCII spaces ({\tt 0x20})
+	\ttitem{uint16 num\_extensions} \hfill \\
+		Number of extension fields TODO number or length?
+	\ttitem{data extensions} \hfill \\
+		Extension fields
 \end{description}
 \end{samepage}
 
@@ -412,9 +468,13 @@ backwards-compatible with client version. In that case, client should probably a
 If the client version is higher than the server version, client should either use the protocol version
 supplied by server, or abort the connection attempt.
 
+Format of extension fields is described in section \ref{ssec:extensions} Extension mechanism.
+
 This concludes the session initialization. The client can now select an authentication mechanism and proceed
 to the next step. If the server advertises the {\tt ANONYMOUS} mechanism, the client should select it, unless
 the user indicates otherwise.
+
+%
 
 \subsection{SASL authentication}
 
@@ -434,10 +494,10 @@ acceptable, because the session is already secured by TLS. For the same reason, 
 security layers even if they are available.
 
 Scheme of the authentication exchange is described in RFC~4422. The client initiates the exchange, after which
-the server can reply with a challenge and client answers that with a response. This can be repeated zero or
-more times. At the end of the exchange, in reply to last client response, server sends an outcome packet. If
-the outcome is success, client is authenticated and can start sending commands. If the outcome is failure,
-server will disconnect the client.
+the server can reply with a challenge and client reacts to that by sending a response. This can be repeated
+zero or more times. At the end of the exchange, in reply to last client response, server sends an outcome
+packet.  If the outcome is success, client is authenticated and can start sending commands. If the outcome is
+failure, server will disconnect the client.
 
 Client initiates the authentication exchange by sending one of the following packets:
 \begin{enumerate}
@@ -531,11 +591,17 @@ At the end of the exchange, server will return an outcome in one of two ways:
 
 \end{enumerate}
 
+TODO define codes for success and failure
+
+%
+
 \subsection{Request and response packets}
 
 Request header contains command id, handle id and operation id, plus length of payload. Payload may contain
 further arguments for the command. Response header contains payload length, operation id and return code.
 Smaller than 0x80 is OK, 0x80 and above is error.  The codes have predefined meanings.
+
+%
 
 \subsection{Communication scheme}
 
@@ -543,6 +609,8 @@ Client starts by sending hello, then it authenticates, then it fires commands an
 first version, responses come in the same order as commands. There is no QUIT command, client simply
 disconnects and server discards all (most?) state. When establishing the session, different packet format is
 used, this way a future version only needs to keep the hello message and redefine other packets.
+
+%
 
 \subsection{Example session}
 
