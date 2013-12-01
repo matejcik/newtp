@@ -429,6 +429,10 @@ After establishing the TCP connection and successful TLS handshake, the client s
 through which it agrees on a common version with the server. If the session was initialized successfully,
 client starts the SASL authentication process. If that is successful, client can start sending commands.
 
+Client can disconnect at any time. If the server detects client disconnect, it destroys all associated state,
+except for replay cache described in the Replay extension. Unprocessed commands are discarded and long-running
+operations in progress are aborted.
+
 %
 
 \subsection{Framing}
@@ -640,7 +644,7 @@ from the batch even if some of them fail, so where required, the client has to w
 success.
 
 \begin{samepage}
-Format of request packet is specified thus:
+Request packet header looks like this:
 \begin{description}[parsep=1pt]
 	\ttitem{uint16 request\_id} \hfill \\
 		Arbitrary request ID
@@ -653,11 +657,10 @@ Format of request packet is specified thus:
 	\ttitem{uint16 length} \hfill \\
 		Length of payload
 \end{description}
-Payload can contain arguments to the command, data to be written etc.
 \end{samepage}
 
 \begin{samepage}
-Format of reply packet is as follows:
+Reply packet header is as follows:
 \begin{description}[parsep=1pt]
 	\ttitem{uint16 request\_id} \hfill \\
 		Request ID from corresponding request
@@ -670,24 +673,9 @@ Format of reply packet is as follows:
 \end{description}
 \end{samepage}
 
-Request header contains command id, handle id and operation id, plus length of payload. Payload may contain
-further arguments for the command. Response header contains payload length, operation id and return code.
-Smaller than 0x80 is OK, 0x80 and above is error.  The codes have predefined meanings.
-
-%
-
-\subsection{Communication scheme}
-
-Client starts by sending hello, then it authenticates, then it fires commands and gets responses.  In the
-first version, responses come in the same order as commands. There is no QUIT command, client simply
-disconnects and server discards all (most?) state. When establishing the session, different packet format is
-used, this way a future version only needs to keep the hello message and redefine other packets.
-
-%
-
-\subsection{Example session}
-
-TODO -- only a table?
+Payload of request packet contains arguments for the command, data to be written etc. Payload of response
+packet contains attribute query results, data read, details of error etc. Result codes below {\tt 0x80}
+indicate success, codes {\tt 0x80} indicate error. Core result codes are defined in table \ref{table:results}.
 
 %%
 
@@ -722,9 +710,9 @@ Complete list of core commands, with descriptions, arguments, etc.
 
 %%
 
-\section{Result codes}
+\section{Example session}
 
-TODO -- only a table?
+really??
 
 %%
 
