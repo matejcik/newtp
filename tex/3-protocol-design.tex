@@ -22,11 +22,11 @@ appropriate, anonymous authentication mechanism will be available. A conforming 
 least anonymous and password-based authentication.\footnote{That is, {\tt ANONYMOUS} and {\tt PLAIN} SASL
 mechanisms.}
 
-Once the session is established, client sends requests and receives replies in a common format. A request
-header contains code of the command, file handle to which it applies, arbitrarily chosen request ID, and
-length of data payload. The reply repeats the request ID, adds a result code and payload length.  Although
-this version of the protocol does not allow it, future revisions might let the server reorder replies, in
-which case the request ID will be used to match replies to corresponding requests.
+Once the session is established, client sends requests and receives replies in a common format. Every command
+operates on an object refered to by a file handle. Before use, client must set up the file handle by assigning
+a path string to it. Requests specify an arbitrary ID that is repeated in the reply; although this version of
+the protocol does not allow it, future revisions might let the server reorder replies, in which case the
+request ID will be used to match replies to corresponding requests.
 
 Core NewTP command set consists of ranged read, ranged write with implicit file creation, truncate operation,
 directory listing that includes selected metadata attributes, creating directories, delete and rename/move
@@ -199,8 +199,7 @@ coming from the same host as the old one.
 
 \section{Building blocks}
 
-This section describes mechanics of NewTP in greater technical detail. It should be useful as a reference for
-implementers.
+This section describes various technical details pertaining to design and implementation of NewTP.
 
 \subsection{Packet format notation}
 
@@ -255,6 +254,12 @@ multiple byte sequences map to the same Unicode codepoint. These are not support
 Paths and files in NewTP are referred to through file handles. The {\tt ASSIGN} command assigns a path string
 to a file handle, and subsequent commands use the file handle as an argument, instead of the path string. The
 purpose of this is to limit repeating of the potentially long path string.
+
+Path strings are absolute and use the slash character (`{\tt /}') to separate path elements. Directory listing
+returns names without full paths, and an absolute path name is constructed by combining directory path, slash, and
+entry name from the listing. Paths do not start with leading slash -- a leading slash is considered to mean
+that the first path element has zero length, which is invalid. Empty path string is allowed and refers to root
+of the published filesystem.
 
 File handle ID is specified as a 16-bit unsigned integer. That means that at most 65536 handles are available
 to the client. Servers should provide as many handles as they can. At session initiation, server informs the
@@ -354,8 +359,15 @@ Extensions can also provide new attribute codes.
 \label{table:attributes}
 \end{table}
 
-\subsection{Session initalization and authentication}
+\section{Communication scheme}
 
+After establishing the TCP connection and successful TLS handshake, the client starts session initialization,
+through which it agrees on a common version with the server. If the session was initialized successfully,
+client starts the SASL authentication process. If that is successful, client can start sending commands.
+
+\subsection{Session initalization}
+
+\begin{samepage}
 After the TLS session is established, client introduces itself with the following packet:
 \begin{description}[parsep=1pt]
 	\ttitem{string newtp} \hfill \\
@@ -370,6 +382,7 @@ Here, ``payload'' refers to everything that comes after it. In this case, payloa
 {\tt version} field). Protocol version is 1. We specify the payload length for extensibility: in a future
 version, client might be sending more info in the initial packet. In version 1, only the version number is
 sent.
+\end{samepage}
 
 \begin{samepage}
 Server replies with the following packet:
@@ -387,9 +400,136 @@ Server replies with the following packet:
 	\ttitem{uint16 authstr\_len} \hfill \\
 		Length of {\tt authstr}
 	\ttitem{string authstr} \hfill \\
-		
+		List of supported SASL authentication mechanisms, separated by ASCII spaces ({\tt 0x20})
 \end{description}
 \end{samepage}
+
+Server should reply with a protocol version that is either the highest version supported, or equal to client
+protocol version, whichever is lower. That means that if the server supports a version higher than the client,
+it should downgrade to the client version. Server can only report higher version than the client if it is not
+backwards-compatible with client version. In that case, client should probably abort the connection attempt.
+
+If the client version is higher than the server version, client should either use the protocol version
+supplied by server, or abort the connection attempt.
+
+This concludes the session initialization. The client can now select an authentication mechanism and proceed
+to the next step. If the server advertises the {\tt ANONYMOUS} mechanism, the client should select it, unless
+the user indicates otherwise.
+
+\subsection{SASL authentication}
+
+This section of the work provides all relevant information in conformance with RFC~4422~\cite{rfc4422}
+section~4 (Protocol Requirements). GSS-API service name is ``{\tt newtp}''.\footnote{The name is not
+registered with IANA, so we do not technically conform to RFC~2743~\cite{rfc2743} requirements, and
+transitively to RFC~4422 requirements either. For the purposes of this work, we consider this informal
+conformance sufficient, seeing as hardly anyone will be using NewTP with GSS-API authentication in the
+foreseeable future. At the time of this writing, the name ``{\tt newtp}'' is not allocated in the IANA service
+registry.} NewTP does not allow multiple authentication, so any authentication exchange can be aborted by
+disconnecting. This version of the protocol does not support separate authentication and authorization
+identities, so authorization identity string should always be empty.
+
+Mechanism negotiation is covered by the previous subsection. The core protocol does not allow the client to
+rediscover available authentication mechanism after the authentication step is completed. We consider this
+acceptable, because the session is already secured by TLS. For the same reason, the protocol is not using SASL
+security layers even if they are available.
+
+Scheme of the authentication exchange is described in RFC~4422. The client initiates the exchange, after which
+the server can reply with a challenge and client answers that with a response. This can be repeated zero or
+more times. At the end of the exchange, in reply to last client response, server sends an outcome packet. If
+the outcome is success, client is authenticated and can start sending commands. If the outcome is failure,
+server will disconnect the client.
+
+Client initiates the authentication exchange by sending one of the following packets:
+\begin{enumerate}
+
+\begin{samepage}
+\item Initiation with mechanism name, {\it without} initial response
+\begin{description}[parsep=1pt]
+	\ttitem{string auth\_init} \hfill \\
+		Fixed ASCII string ``{\tt A0}''
+	\ttitem{uint16 length} \hfill \\
+		Length of payload (in this case, only the mechanism name)
+	\ttitem{string mechanism} \hfill \\
+		Name of the selected mechanism
+\end{description}
+\end{samepage}
+
+\begin{samepage}
+\item Initiation with mechanism name, {\it with} initial response
+\begin{description}[parsep=1pt]
+	\ttitem{string auth\_init} \hfill \\
+		Fixed ASCII string ``{\tt A1}''
+	\ttitem{uint16 length} \hfill \\
+		Length of payload
+	\ttitem{uint16 mechanism\_len} \hfill \\
+		Length of mechanism name
+	\ttitem{string mechanism} \hfill \\
+		Name of the selected mechanism
+	\ttitem{uint16 response\_len} \hfill \\
+		Length of initial response
+	\ttitem{data response} \hfill \\
+		Initial response
+\end{description}
+\end{samepage}
+
+\end{enumerate}
+
+\begin{samepage}
+Server challenge packet format is as follows:
+\begin{description}[parsep=1pt]
+	\ttitem{string auth\_challenge} \hfill \\
+		Fixed ASCII string ``{\tt AC}''
+	\ttitem{uint16 length} \hfill \\
+		Length of challenge
+	\ttitem{data challenge} \hfill \\
+		Contents of challenge
+\end{description}
+\end{samepage}
+
+\begin{samepage}
+Client response packet format is as follows:
+\begin{description}[parsep=1pt]
+	\ttitem{string auth\_response} \hfill \\
+		Fixed ASCII string ``{\tt AR}''
+	\ttitem{uint16 length} \hfill \\
+		Length of response
+	\ttitem{data response} \hfill \\
+		Contents of response
+\end{description}
+\end{samepage}
+
+At the end of the exchange, server will return an outcome in one of two ways:
+\begin{enumerate}
+
+\begin{samepage}
+\item Outcome of authentication exchange, {\it without} additional data
+\begin{description}[parsep=1pt]
+	\ttitem{string auth\_outcome} \hfill \\
+		Fixed ASCII string ``{\tt AF}'' (for ``Auth Finished'')
+	\ttitem{uint16 length} \hfill \\
+		Length of payload (in this case, 1)
+	\ttitem{byte result} \hfill \\
+		Result code
+\end{description}
+\end{samepage}
+
+\begin{samepage}
+\item Outcome {\it with} additional data
+\begin{description}[parsep=1pt]
+	\ttitem{string auth\_outcome} \hfill \\
+		Fixed ASCII string ``{\tt AD}'' (for ``Auth outcome with Data'')
+	\ttitem{uint16 length} \hfill \\
+		Length of payload
+	\ttitem{byte result} \hfill \\
+		Result code
+	\ttitem{uint16 adata\_len} \hfill \\
+		Length of additional data
+	\ttitem{data adata} \hfill \\
+		Additional data
+\end{description}
+\end{samepage}
+
+\end{enumerate}
 
 \subsection{Request and response packets}
 
