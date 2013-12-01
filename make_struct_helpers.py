@@ -1,17 +1,17 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 
 FILENAME = 'struct_helpers'
 h_label = FILENAME.upper() + '__H__'
 h_header = """\
-#ifndef %s
-#define %s
+#ifndef {0}
+#define {0}
 
 #include "structs.h"
 
-""" % (h_label,h_label)
+""".format(h_label)
 h_footer = """\
-#endif /* %s */
-""" % h_label
+#endif /* {0} */
+""".format(h_label)
 
 c_header = """\
 #include <arpa/inet.h>
@@ -23,38 +23,46 @@ c_header = """\
 #include "common.h"
 #include "structs.h"
 #include "log.h"
-#include "%s.h"
+#include "{0}.h"
 
-""" % FILENAME
+""".(FILENAME)
 c_footer = ""
 
-def h_defs (s, f, l):
-	return '#define FORMAT_%s "%s"\n#define SIZEOF_%s (%s)\n' % (s,f,s,l)
-
-def h_send_struct (s):
-	return "int send_%s (int sock, struct %s *);\n" % (s,s)
-
-def h_recv_struct (s):
-	return "int recv_%s (int sock, struct %s *);\n" % (s,s)
-
-def h_send_struct_params (s, p):
-	return "int send_%s_p (int sock, %s);\n" % (s, ', '.join(map(lambda x: x[0], p)))
-
-def cf_recv (s, f):
+def h_defs (name, format_str, len_list, fields):
 	return """\
-int recv_%s (int sock, struct %s * s)
+#define FORMAT_{name} "{format_str}"
+#define SIZEOF_{name}(s) ({len_list})
+int pack_{name} (char * const buf, struct {name} const * s);
+int pack_{name}_p (char * const buf, {fields});
+int unpack_{name} (char const * const buf, struct {name} * s);
+""".format(locals())
+
+def cf_functions (name, struct_fields):
+    return """\
+int pack_{name} (char * buf, struct {name} * s)
 {
-	int ret;
-	char buf[SIZEOF_%s];
+    int size;
 
-	assert(s);
-
-	if ((ret = recv_full(sock, buf, SIZEOF_%s)) <= 0) return ret;
-	assert(ret == SIZEOF_%s);
-	assert(unpack(buf, FORMAT_%s, %s) == SIZEOF_%s);
-	return ret;
+    assert(s);
+    assert(buf);
+    size = pack(buf, FORMAT_{name}, {struct_fields});
+    assert(size == SIZEOF_{name}(s));
+    return size;
 }
-""" % (s, s, s, s, s, s, f, s)
+
+int pack_{name}_p (char * constbuf);
+
+int unpack_{name} (char const * const buf, struct {name} * s)
+{
+    int size;
+
+    assert(s);
+    assert(buf);
+    size = unpack(buf, FORMAT_{name}, {fields});
+    assert(size == SIZEOF_{name}(s));
+    return size;
+}
+""".format(locals())
 
 def cf_sendp (s, p, f):
 	return """\
@@ -74,30 +82,23 @@ int send_%s (int sock, struct %s * s)
 }
 """ % (s,s,s,f);
 
-def genthings (p):
-	length = ' + '.join(map(lambda a: "sizeof(%s)" % a[0], p))
-	res = []
-	fmt = []
-	plist = []
-	previous = ''
+def make_format (p):
+    fmt = []
 	for tp, name in p:
 		if tp == 'uint8_t': fmt.append('c')
 		elif tp == 'uint16_t': fmt.append('s')
 		elif tp == 'uint32_t': fmt.append('i')
 		elif tp == 'uint64_t': fmt.append('l')
 		elif tp == 'char *':
-			if previous == 'uint16_t':
-				fmt.append('B')
-			else:
-				fmt.append('Z')
+			fmt.append('B')
+		elif tp.startswith('char['):
+			n = tp[5:6]
+			fmt.append(n)
+			fmt.append('B')
 		else:
 			print "unknown type:",tp
 
-		res.append(name)
-		plist.append("%s const %s" % (tp, name))
-		previous = tp
-	
-	return (length,res,''.join(fmt),', '.join(plist))
+	return ''.join(fmt)
 
 import re
 
