@@ -150,9 +150,9 @@ responses, in which case it is possible to insert commands midway through.
 This sort of interleaving rules out long operations, which is helpful even on fast networks. It means that it
 is easy to implement a responsive filesystem emulation on top of NewTP.
 
-Transfer overhead works out to 24 bytes per 64 kB when using maximum possible packet size. To put this in
-perspective, when downloading 2 GB of data at top speed, protocol overhead will consume additional 786 kB.
-This is perfectly acceptable.
+Transfer overhead works out to 24 bytes (TODO calculate based on actual packet!!!) per 64 kB when using
+maximum possible packet size. To put this in perspective, when downloading 2 GB of data at top speed, protocol
+overhead will consume additional 786 kB.  This is perfectly acceptable.
 
 %
 
@@ -279,21 +279,25 @@ multiple byte sequences map to the same Unicode codepoint. These are not support
 %
 
 \subsection{Path strings and file handles}
+\label{ssec:paths}
 
 Paths and files in NewTP are referred to through file handles. The {\tt ASSIGN} command assigns a path string
 to a file handle, and subsequent commands use the file handle as an argument, instead of the path string. The
 purpose of this is to limit repeating of the potentially long path string.
 
-Path strings are absolute and use the slash character (`{\tt /}') to separate path elements. Directory listing
-returns names without full paths, and an absolute path name is constructed by combining directory path, slash, and
-entry name from the listing. Paths do not start with leading slash -- a leading slash is considered to mean
-that the first path element has zero length, which is invalid. Empty path string is allowed and refers to root
-of the published filesystem.
+Path strings are absolute and use the slash character (`{\tt /}') to separate path elements. Empty path
+elements, path elements `{\tt .}' and `{\tt ..}' must not be part of the path. Directory listing returns names
+without full paths, and an absolute path name is constructed by combining directory path, slash, and entry
+name from the listing. Empty path string is allowed and refers to root of the published filesystem. Combining
+empty path with a slash and a root entry name results in path with a leading slash -- therefore, leading slash
+is mandatory. Trailing slash is forbidden; in particular, path string ``{\tt /}'' does not refer to the root
+directory and is invalid.
 
 File handle ID is specified as a 16-bit unsigned integer. That means that at most 65536 handles are available
 to the client. Servers should provide as many handles as they can. At session initiation, server informs the
 client about how many handles are available; these must be consecutive handles numbered 0--$({\tt max\_handles}
-- 1)$. A conforming server must provide at least 16 handles.
+- 1)$. A conforming server must provide at least 16 handles. When the session start, every available handle is
+set to empty path.
 
 File handles do not necessarily refer to valid filesystem objects -- for example, to create a new directory,
 the client assigns the new path to a file handle and then issues a {\tt MAKEDIR} command on that handle.
@@ -489,6 +493,10 @@ Server replies with the following packet:
 		Number of available file handles
 	\ttitem{uint16 max\_opendirs} \hfill \\
 		Number of directories available for simultaneous listing
+	\ttitem{uint16 platform\_len} \hfill \\
+		Length of {\tt platform}
+	\ttitem{string platform} \hfill \\
+		Platform string
 	\ttitem{uint16 authstr\_len} \hfill \\
 		Length of {\tt authstr}
 	\ttitem{string authstr} \hfill \\
@@ -499,6 +507,10 @@ Server replies with the following packet:
 		Extension fields
 \end{description}
 \end{samepage}
+
+Platform string can be ``{\tt posix}'' or ``{\tt windows}'', this specifies which platform-specific attributes
+will be available. If the client does not recognize the platform string, it can only use the
+platform-independent attributes.
 
 Server should reply with a protocol version that is either the highest version supported, or equal to client
 protocol version, whichever is lower. That means that if the server supports a version higher than the client,
@@ -674,28 +686,223 @@ Reply packet header is as follows:
 \end{samepage}
 
 Payload of request packet contains arguments for the command, data to be written etc. Payload of response
-packet contains attribute query results, data read, details of error etc. Result codes below {\tt 0x80}
-indicate success, codes {\tt 0x80} indicate error. Core result codes are defined in table \ref{table:results}.
+packet contains attribute query results, data read, details of error etc. 
+%%
+
+\begin{table}[h]
+\begin{center}
+
+\def\tline#1#2{ {\ttfamily #1} & {\ttfamily #2} }
+\begin{tabular}{|cll|}
+	\hline
+	Code & Symbolic name & Description \\
+	\hline
+	\tline{0x00}{R\_OK} & Success \\
+	\hline
+
+	\tline{0x80}{E\_BADPACKET} & Malformed request packet \\
+	\tline{0x81}{E\_BADEXTENSION} & Unsupported extension \\
+	\tline{0x82}{E\_BADCOMMAND} & Unrecognized command \\
+	\tline{0x83}{E\_BADHANDLE} & File handle out of range \\
+	\tline{0x84}{E\_BADPATH} & Path string is not acceptable \\
+	\tline{0x85}{E\_DENIED} & Access denied \\
+	\tline{0x86}{E\_BUSY} & Cannot access, try again later \\
+	\tline{0x87}{E\_IO} & I/O error on server \\
+	\tline{0x88}{E\_NOTFOUND} & Resource does not exist \\
+		~ & ~ & Path component is not a directory \\
+	\tline{0x89}{E\_NOTDIR} & Directory operation attempted on non-directory \\
+	\tline{0x8A}{E\_NOTFILE} & File operation attempted on directory \\
+	
+	\hline
+
+	\tline{0x90}{E\_BADATTR} & Unsupported attribute code \\
+	\tline{0x91}{E\_CANNOTSET} & Specified attribute is not writable \\
+	\tline{0x92}{E\_BADVALUE} & Specified attribute value is not acceptable \\
+
+	\hline
+
+	\tline{0xA0}{E\_BADOFFSET} & Read or write offset is not acceptable \\
+	\tline{0xA1}{E\_TOOBIG} & File size limit reached \\
+	\tline{0xA2}{E\_DEVFULL} & No space left on filesystem \\
+
+	\hline
+
+	\tline{0xB0}{E\_NOTEMPTY} & Attempting to delete a non-empty directory \\
+	\tline{0xB1}{E\_BADMOVE} & Directory move would result in path loop \\
+		~ & ~ & Move would overwrite a directory \\
+		~ & ~ & New path component is not a directory \\
+	\tline{0xB2}{E\_CROSSDEV} & Move crosses filesystem boundary \\
+	\tline{0xB3}{E\_READDIR} & Directory is not rewound for reading \\
+
+	\hline
+
+	\tline{0xFE}{E\_FAIL} & Generic command failure \\
+	\tline{0xFF}{E\_SERVFAIL} & Internal server error \\
+
+	\hline
+\end{tabular}
+
+\end{center}
+\caption{Result codes}
+\label{table:results}
+\end{table}
 
 %%
 
 \section{List of commands}
 
-Complete list of core commands, with descriptions, arguments, etc.
+This section describes each command from the core set, its arguments, reply format and possible result codes.
+Table \ref{table:results} describes all core result codes. Codes below {\tt 0x80} indicate success, codes
+{\tt 0x80} and above indicate error.
+
+Result code {\tt R\_OK} represents generic success, which is appropriate in most cases. Unless other success
+codes can be returned as well, it is not mentioned in the description.
+
+Result codes in the range {\tt 0x80}--{\tt 0x8f} are generic and can be returned by any command. These are not
+mentioned in command descriptions, unless there are special concerns.  Result codes {\tt E\_FAIL} and {\tt
+E\_SERVFAIL} indicate exceptional server states that might not be recoverable. The server might close the
+connection after sending these codes. Continuing communication after receiving {\tt E\_SERVFAIL} is unsafe.
 
 \subsection{ASSIGN}
 
+Code: 0x00
+
+Arguments:
+string path
+
+The only argument is the path string, its length is indicated by the {\tt length} field in header.
+
+Assigns a new path to a file handle. Performs checks to verify that the path string is valid according to
+section \ref{ssec:paths}, and that it conforms to OS or filesystem limitations. Does not check whether the
+path or any of its components actually exist in the filesystem. Specifically this means that if the path
+appears to confirm to filesystem rules, but turns out to be invalid when attempting to access it, calls other
+than {\tt ASSIGN} can return {\tt E\_BADPATH} at a later point.
+
+Result data: none
+
+Specific errors: none
+
 \subsection{STAT}
+
+Code: 0x01
+
+Arguments:
+data attributes
+
+The only argument is the set of queried attributes, its length is indicated by the {\tt length} field in
+header.
+
+Queries information about specified filesystem object. The returned information is a list of fields in the
+order specified by the {\tt attributes} argument.
+
+Result data: depends on arguments
+
+Specific errors:
+	E\_BADATTR if an attribute code from the list is unknown or not supported on the platform
 
 \subsection{SETATTR}
 
+Code: 0x02
+
+Arguments:
+byte attribute
+<any> value
+
+Attempts to set an attribute {\tt attribute} to a new value {\tt value}.
+
+Result data: none
+
+Specific errors:
+	E\_BADATTR if the attribute code is unknown or not supported on the platform
+	E\_CANNOTSET if the attribute is not writable
+	E\_BADVALUE if the attribute is writable, but the specified value cannot be set
+
 \subsection{STATVFS}
+
+Code: 0x03
+
+Arguments: none
+
+Queries filesystem information for the given path.
+
+Result data:
+uint32 device\_id // corresponds to the device\_id attribute
+uint64 capacity // total filesystem size
+uint64 free\_space // free space available
+byte writable // 0x00 - read-only; 0x01 - writable
+
+Specific errors: none
 
 \subsection{READ}
 
+Code: 0x10
+
+Arguments:
+uint64 offset
+uint16 read\_len
+
+Attempts to read {\tt read\_len} bytes from file, starting at {\tt offset}. Returns exactly {\tt read\_len}
+bytes of data, unless it encounters end of file or unless an error occurs. In case of error, returns data
+successfully read before the error occured. If {\tt offset} points beyond end of file, returns success and
+zero-length data.
+
+Result data:
+data data\_read
+
+Specific errors:
+	E\_BADOFFSET if the offset is not acceptable
+
 \subsection{WRITE}
+\label{ssec:WRITE}
+
+Code: 0x11
+
+Arguments:
+uint64 offset
+data write\_data
+
+Length of {\tt write\_data}, further refered to as {\tt write\_len}, is calculated as $({\tt length} - 8)$.
+
+Attempts to write {\tt write\_len} bytes of data to a file, starting at {\tt offset}. Returns number of
+bytes written. On success, this will be exactly {\tt write\_len}. On error, it might be a smaller number.
+
+If the file does not exist, it is created. If {\tt write\_len} is zero, the server attempts to open the file
+for writing but does not write any data. This can be used to create an empty file.
+
+If the offset points beyond end of file, the command will attempt to transparently extend the file. This will
+succeed if the filesystem supports sparse files. If not, the implementation can either extend the file by
+appending null bytes until it reaches the offset, or return {\tt E\_BADOFFSET}. The implementation might
+impose an arbitraty limit on how far the offset can be from the end of the file before {\tt E\_BADOFFSET} is
+returned. If a size limit is reached or all disk space consumed while extending the file, the implementation
+should return the appropriate error code and attempt to return the file to its previous state.
+
+Result data:
+uint16 bytes\_written
+
+Specific errors:
+	E\_BADOFFSET if the offset is not acceptable
+	E\_TOOBIG the file size has reached a filesystem or operating system limit
+	E\_DEVFULL no space left on device
 
 \subsection{TRUNCATE}
+
+Code: 0x12
+
+Arguments:
+uint64 size
+
+Sets file size to specified value. If the file was larger than {\tt size}, its contents are truncated. If the
+file was smaller than {\tt size}, the discussion from~\ref{ssec:WRITE} applies. Essentialy, when enlarging
+a small file, results of {\tt TRUNCATE} and {\tt WRITE} with zero {\tt write\_len} are the same.
+
+Does not implicitly create the file, may return {\tt E\_NOTFOUND} if the file does not exist.
+
+Result data: none
+
+Specific errors:
+	E\_BADOFFSET if the offset is not acceptable
+	E\_TOOBIG the file size has reached a filesystem or operating system limit
+	E\_DEVFULL no space left on device
 
 \subsection{DELETE}
 
