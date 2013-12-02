@@ -1,4 +1,4 @@
-% vim: tw=110:fo=an1lt:nosmartindent
+% vim: tw=110:fo=n1lt:nosmartindent
 
 \chapter{Design of the new protocol}
 
@@ -730,9 +730,11 @@ packet contains attribute query results, data read, details of error etc.
 	\tline{0xB0}{E\_NOTEMPTY} & Attempting to delete a non-empty directory \\
 	\tline{0xB1}{E\_BADMOVE} & Directory move would result in path loop \\
 		~ & ~ & Move would overwrite a directory \\
+		~ & ~ & Move would overwrite a file by a directory \\
 		~ & ~ & New path component is not a directory \\
 	\tline{0xB2}{E\_CROSSDEV} & Move crosses filesystem boundary \\
-	\tline{0xB3}{E\_READDIR} & Directory is not rewound for reading \\
+	\tline{0xB3}{E\_EXISTS} & Directory already exists \\
+	\tline{0xB4}{E\_READDIR} & Directory is not rewound for reading \\
 
 	\hline
 
@@ -793,12 +795,13 @@ The only argument is the set of queried attributes, its length is indicated by t
 header.
 
 Queries information about specified filesystem object. The returned information is a list of fields in the
-order specified by the {\tt attributes} argument.
+order specified by the {\tt attributes} argument. Each attribute may appear only once.
 
 Result data: depends on arguments
 
 Specific errors:
 	E\_BADATTR if an attribute code from the list is unknown or not supported on the platform
+		{\it or} if an attribute is listed more than once
 
 \subsection{SETATTR}
 
@@ -841,10 +844,10 @@ Arguments:
 uint64 offset
 uint16 read\_len
 
-Attempts to read {\tt read\_len} bytes from file, starting at {\tt offset}. Returns exactly {\tt read\_len}
-bytes of data, unless it encounters end of file or unless an error occurs. In case of error, returns data
-successfully read before the error occured. If {\tt offset} points beyond end of file, returns success and
-zero-length data.
+Reads {\tt read\_len} bytes from file, starting at {\tt offset}. Returns exactly {\tt read\_len} bytes of
+data, unless it encounters end of file or unless an error occurs. In case of error, returns data successfully
+read before the error occured. If {\tt offset} points beyond end of file, returns success and zero-length
+data.
 
 Result data:
 data data\_read
@@ -863,8 +866,8 @@ data write\_data
 
 Length of {\tt write\_data}, further refered to as {\tt write\_len}, is calculated as $({\tt length} - 8)$.
 
-Attempts to write {\tt write\_len} bytes of data to a file, starting at {\tt offset}. Returns number of
-bytes written. On success, this will be exactly {\tt write\_len}. On error, it might be a smaller number.
+Writes {\tt write\_len} bytes of data to a file, starting at {\tt offset}. Returns number of bytes written. On
+success, this will be exactly {\tt write\_len}. On error, it might be a smaller number.
 
 If the file does not exist, it is created. If {\tt write\_len} is zero, the server attempts to open the file
 for writing but does not write any data. This can be used to create an empty file.
@@ -906,14 +909,102 @@ Specific errors:
 
 \subsection{DELETE}
 
+Code: 0x20
+
+Arguments: none
+
+Deletes a file or an empty directory.
+
+Result data: none
+
+Specific errors:
+	E\_NOTEMPTY if attempting to delete a directory that is not empty
+
 \subsection{RENAME}
+
+Code: 0x21
+
+Arguments:
+string newpath
+
+Renames or moves a filesystem object so that its new path is {\tt newpath}. The new path must be in the same
+filesystem tree. If moving a directory, the new path must not be inside the directory.
+
+If the new path exists and is a file, and the file handle points to a file, the file at {\tt newpath} is
+overwritten.
+
+If the operation succeeds, the file handle is updated with the new path.
+
+Result data: none
+
+Specific errors:
+	E\_BADPATH if the file handle path, {\it or} the new path, is not acceptable
+	E\_BADMOVE if the move tries to make a directory loop (i.e. make a directory a subdirectory of itself)
+		{\it or} if the new path exists and is a directory
+		{\it or} if the new path exists and is a file, but file handle refers to a directory
+		{\it or} if a component in the new path is not a directory
+	E\_CROSSDEV if the move crosses filesystem boundaries
 
 \subsection{MAKEDIR}
 
+Code: 0x22
+
+Arguments: none
+
+Creates a directory. Fails if the directory already exists.
+
+Result data: none
+
+Specific errors:
+	E\_EXISTS if the directory already exists
+
 \subsection{REWINDDIR}
+
+Code: 0x30
+
+Arguments: none
+
+Prepares directory for reading.
+
+At session initialization, server informs the client of how many directories can be in the state ``prepared
+for reading'' at any given time. This will usually be less than 10, some implementations may only allow one.
+When {\tt REWINDDIR} is called on more directories than that, the first one loses the ``prepared for reading''
+status in favor of the last one, etc. It is recommended that the client always completes directory listing of
+one directory before moving on to another.
+
+Result data: none
+
+Specific errors: none
 
 \subsection{READDIR}
 
+Code: 0x31
+
+Arguments:
+data attributes
+
+Reads as many directory entries as possible and returns them as names and the specified set of attributes.
+Each attribute may be specified only once. If no more entries remain to be read, returns zero entries. This
+will destroy the ``prepared for reading'' state, so subsequent read attempts will return an error.
+
+If the command is interrupted by an error, result data will still contain the entries that were successfully
+read.
+
+To obtain full directory listing, client must first call {\tt REWINDDIR} and then repeat calling {\tt READDIR}
+until the {\tt entries} value returned is zero.
+
+Result data:
+uint16 entries
+(repeated (entries) times:
+	uint16 name\_len
+	string name
+	<any> fields per the attributes argument
+)
+
+Specific errors:
+	E\_BADATTR if an attribute code from the list is unknown or not supported on the platform
+		{\it or} if an attribute is listed more than once
+	E\_READDIR if the directory is not prepared for reading
 
 %%
 
