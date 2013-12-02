@@ -196,8 +196,8 @@ resuming of interrupted downloads, seeking in media streams and the like. It is 
 wants to implement filesystem-like behavior over the protocol.
 
 A general-purpose protocol will treat files as opaque streams. However, in a specialized protocol, it might be
-useful to understand structure of the file. This can allow the client to query contents of the file as
-a database, download only thumbnail or embedded metadata etc.
+useful to understand structure of the file. This allows the client to perform more abstract operations --
+e.g., query contents of the file as a database, download only thumbnail or embedded metadata etc.
 
 \subsection{Upload}
 
@@ -315,13 +315,35 @@ broadcasting on an open Wi-Fi network, your communication is routed through a nu
 parties. It would be unwise to transmit anything without encryption, especially so in a file transfer protocol
 that might potentially be used to work with confidential data.
 
-A good encryption scheme must also include resistance to Man-in-the-Middle attacks. Basically, a client must
-be able to verify authenticity of the server -- otherwise an attacker could impersonate the server, rendering
-on-the-wire encryption pointless. This is, in general, a hard problem. Either the client must know the server
-(or rather its public key) in advance, or it needs to trust a third party that can vouch for the server's
-identity, possibly through a chain of intermediary trusted parties. However, neither of the options might be
-viable in many real-world scenarios. At the very least, clients should remember server's public key from first
-connection attempt and check that it does not change on subsequent connections.
+Protocols often rely on the transport layer to provide encryption. Probably the most popular solution today is
+the Transport Layer Security (TLS) protocol~\cite{rfc5246}, which works on top of TCP. Its popularity also
+means that it receives a lot of attention from the cryptography community, so its security properties are
+relatively well understood.\footnote{This mostly means that the TLS scheme has ``withstood the test of time'':
+under such detailed scrutiny, the likelihood of a major problem remaining undiscovered is lower than in less
+studied schemes. In theory, anyway.} TLS is based on public-key cryptography, and provides cryptographic
+confidentiality and authenticity. That means that an attacker cannot decrypt your messages or forge illicit
+ones without knowing the corresponding private key.
+
+This kind of authenticity guarantee is necessarily limited. You can prove that you are communicating with the
+rightful owner of a key, bud you still need to connect the key to an identity. In a so-called {\it Man in the
+Middle} (MitM) class of attacks, the attacker sets up an intercepting proxy with their own key. When the
+client connects, an encrypted channel is established using the attacker's key instead of the legitimate one.
+The proxy can then forward client requests to the original server, so that nothing looks wrong from the
+client's perspective, or actively modify the communication.
+
+To prevent MitM attacks, the client must be able to verify ownership of the server key. This, in general, is
+a hard problem. Either the key must be known in advance, or the client needs to trust a third party that can
+vouch for the server's identity. The latter scheme is commonly called a public-key infrastructure (PKI), and
+it is the solution used by TLS. Every server presents a public-key certificate that links their key to
+indentity information. The certificate may also carry a cryptographic signature from another party, whose
+certificate can in turn be signed by another, forming a chain of trust. Operating systems and popular
+applications such as browsers contain a core set of trusted {\it root certificates}, and if the chain of trust
+can be traced back to a root certificate, the identity information of the server is considered authentic.
+
+Knowing the keys of every potential server of interest is obviously impossible, and due to real-world
+constraints, it is often impractical for server operators to obtain trusted signatures. To achieve at least
+some level of MitM protection in these conditions, clients should store the server's public key on first
+connection and check that it doesn't change on subsequent attempts.
 
 \subsection{Resistance to attacks}
 
@@ -421,16 +443,12 @@ files and especially directories to indicate that a lock on particular resource 
 it is very important to distinguish whether the create operation succeeded (the caller now holds the lock) or
 failed (somebody else holds the lock).
 
-This problem is impossible to solve in a fully stateless protocol, and difficult in a stateful one as well. To
-prevent faulty replays, the server needs to retain results of recent operations for some time after the
-connection is lost, reliably identify connection failures, detect replay attempts on new connections and
-return the first result without performing the operation repeatedly. This must be done with care, so that even
-malicious actors cannot trigger the replay detection for other clients.
-
-Maintaining idempotence in concurrent environment does not solve the race conditions, and the directory
-locking method is prone to deadlocks anyway. Given that, many protocols do not try to solve this problem
-fully, opting instead for a dedicated locking mechanism. However, there is value in implementing mitigation
-strategies, such as a less sophisticated replay detection method that does not attempt to cover all scenarios.
+To prevent faulty replays, the server needs to retain results of recent operations, distinguish replay
+attempts from actual repeated requests, and return the original result where appropriate. This must be done
+with care, so that malicious actors cannot trigger the replay detection for other clients. A possible way to
+accomplish this is by sending a unique token with each request. The server can then store the token along with
+a result, and return that when it encounters the same token again. If the token is stored as a metadata entry
+for the affected filesystem object, it can even provide replay protection for fully stateless servers.
 
 
 \subsection{Client-side caching}
