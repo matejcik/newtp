@@ -1,7 +1,8 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 
 FILENAME = 'struct_helpers'
 h_label = FILENAME.upper() + '__H__'
+
 h_header = """\
 #ifndef {0}
 #define {0}
@@ -9,6 +10,7 @@ h_header = """\
 #include "structs.h"
 
 """.format(h_label)
+
 h_footer = """\
 #endif /* {0} */
 """.format(h_label)
@@ -25,62 +27,61 @@ c_header = """\
 #include "log.h"
 #include "{0}.h"
 
-""".(FILENAME)
+""".format(FILENAME)
+
 c_footer = ""
 
-def h_defs (name, format_str, len_list, fields):
+def h_defs (name, format_str, fields):
+    def len_item(x):
+        tp, name = x
+        if tp == "char *":
+            return "(s)->{}_len".format(name)
+        else:
+            return "sizeof({})".format(tp)
+    len_list = ' + '.join(map(len_item, fields))
+    field_types = ', '.join(map(lambda x: x[0] + " const", fields))
+
     return """\
 #define FORMAT_{name} "{format_str}"
 #define SIZEOF_{name}(s) ({len_list})
 int pack_{name} (char * const buf, struct {name} const * s);
-int pack_{name}_p (char * const buf, {fields});
+int pack_{name}_p (char * const buf, {field_types});
 int unpack_{name} (char const * const buf, struct {name} * s);
-""".format(locals())
+""".format(**locals())
 
-def cf_functions (name, struct_fields):
+def c_functions (name, fields):
+    field_refs = ', '.join(map(lambda x: "s->" + x[1], fields))
+    field_prefs = ', '.join(map(lambda x: "&s->" + x[1], fields))
+    field_list = ', '.join(map(lambda x: x[0] + " const " + x[1], fields))
+    field_names = ', '.join(map(lambda x: x[1], fields))
     return """\
-int pack_{name} (char * buf, struct {name} * s)
-{
-    int size;
-
+int pack_{name} (char * const buf, struct {name} const * s)
+{{
     assert(s);
-    assert(buf);
-    size = pack(buf, FORMAT_{name}, {struct_fields});
-    assert(size == SIZEOF_{name}(s));
-    return size;
-}
+    return pack_{name}_p(buf, {field_refs});
+}}
 
-int pack_{name}_p (char * constbuf);
+int pack_{name}_p (char * const buf, {field_list})
+{{
+    int PACK_size;
+
+    assert(buf);
+    PACK_size = pack(buf, FORMAT_{name}, {field_names});
+    /* assert(size == SIZEOF_{name}(s)); */
+    return PACK_size;
+}}
 
 int unpack_{name} (char const * const buf, struct {name} * s)
-{
+{{
     int size;
 
     assert(s);
     assert(buf);
-    size = unpack(buf, FORMAT_{name}, {fields});
+    size = unpack(buf, FORMAT_{name}, {field_prefs});
     assert(size == SIZEOF_{name}(s));
     return size;
-}
-""".format(locals())
-
-def cf_sendp (s, p, f):
-    return """\
-int send_%s_p (int sock, %s)
-{
-    char buf[SIZEOF_%s];
-    assert(pack(buf, FORMAT_%s, %s) == SIZEOF_%s);
-    return send_full(sock, buf, SIZEOF_%s);
-}
-""" % (s,p,s,s,f,s,s);
-
-def cf_send (s, f):
-    return """\
-int send_%s (int sock, struct %s * s)
-{
-    return send_%s_p (sock, %s);
-}
-""" % (s,s,s,f);
+}}
+""".format(**locals())
 
 def make_format (p):
     fmt = []
@@ -96,7 +97,7 @@ def make_format (p):
             fmt.append(n)
             fmt.append('B')
         else:
-            print "unknown type:",tp
+            print("unknown type:",tp)
 
     return ''.join(fmt)
 
@@ -130,24 +131,17 @@ for line in src:
         else:
             match = end.match(line)
             if match:
-                length, res, fmt, plist = genthings(items)
-                h.write(h_defs(struct, fmt, length))
-                h.write(h_recv_struct(struct))
-                h.write(h_send_struct(struct))
-                h.write(h_send_struct_params(struct,items))
+                format_str = make_format(items)
+                h.write(h_defs(struct, format_str, items))
                 h.write("\n")
 
-                recvs = ', '.join(map(lambda a: "&s->%s" % a, res))
-                c.write(cf_recv(struct, recvs))
+                c.write(c_functions(struct, items))
                 c.write("\n")
-                sends = ', '.join(map(lambda a: "s->%s" % a, res))
-                c.write(cf_send(struct, sends))
-                c.write("\n")
-                c.write(cf_sendp(struct, plist, ', '.join(res)))
-                
+
                 struct = None
+
             else:
-                print "not matched:",line
+                print("not matched:",line)
 
 
 h.write(h_footer)

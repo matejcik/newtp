@@ -17,8 +17,9 @@
 #include "operations.h"
 #include "paths.h"
 #include "structs.h"
+#include "tools.h"
 
-#define MYPORT "5438"	/* the port users will be connecting to */
+#define MYPORT "63987"	/* the port users will be connecting to */
 #define BACKLOG 10	/* how many pending connections queue will hold */
 
 #define CHECK(err,call,ret) { \
@@ -32,6 +33,11 @@ int socknum = 0;
 
 int child = 0;
 int childsock;
+
+char * inbuf;
+char * outbuf;
+
+/***** server termination handling *****/
 
 void close_server_sockets ()
 {
@@ -51,50 +57,104 @@ void sighandler (int signal)
 	exit(0); /* invokes at_exit handler */
 }
 
-void work (int sock)
+
+/***** child process functions *****/
+
+#define HANDLE_CMD(x) \
+	case CMD_##x:\
+		len = cmd_##x(&cmd, inbuf, outbuf); \
+		break;
+
+void do_work (int sock)
 {
 	struct command cmd;
-
-	log("connection received");
-
-	SAFE(server_init(sock));
+	int len;
 
 	while (1) {
-		SAFE(recv_command(sock, &cmd));
+		SAFE(recv_full(sock, inbuf, SIZEOF_command(cmd)));
+		unpack_command(inbuf, &cmd);
+		SAFE(recv_full(sock, inbuf, cmd.length));
+
+		len = 0;
 
 		switch (cmd.command) {
-			case CMD_NOOP: /* server ping - implemented right here */
-				log("ping");
-				SAFE(send_reply_p(sock, cmd.id, STAT_OK));
-				break;
-
-			case CMD_ASSIGN: /* assign a handle */
-				SAFE(cmd_assign(sock, &cmd));
-				break;
-			case CMD_LIST:
-				SAFE(cmd_list(sock, &cmd));
-				break;
-			case CMD_LIST_CONT:
-				SAFE(cmd_list_cont(sock, &cmd));
-				break;
-			case CMD_READ:
-				SAFE(cmd_read(sock, &cmd));
-				break;
-			case CMD_WRITE:
-				SAFE(cmd_write(sock, &cmd));
-				break;
-			case CMD_DELETE:
-				SAFE(cmd_delete(sock, &cmd));
-				break;
-			case CMD_RENAME:
-				SAFE(cmd_rename(sock, &cmd));
-				break;
+			HANDLE_CMD(ASSIGN)
+			HANDLE_CMD(STAT)
+			//HANDLE_CMD(SETATTR)
+			//HANDLE_CMD(STATVFS)
+			HANDLE_CMD(READ)
+			HANDLE_CMD(WRITE)
+			//HANDLE_CMD(TRUNCATE)
+			HANDLE_CMD(DELETE)
+			HANDLE_CMD(RENAME)
+			//HANDLE_CMD(MKDIR)
+			HANDLE_CMD(REWINDDIR)
+			HANDLE_CMD(READDIR)
 			default:
 				logp("unknown command: %x", cmd.command);
-				SAFE(send_reply_p(sock, cmd.id, STAT_BADCMD));
+				len = pack_reply_p(outbuf, cmd.request_id, 0, ERR_BADCOMMAND, 0);
 				break;
 		}
+
+		if (len == 0) {
+			len = pack_reply_p(outbuf, cmd.request_id, 0, ERR_FAIL, 0);
+		}
+
+		if (len > 0) {
+			SAFE(send_full(sock, outbuf, len));
+		} else {
+			len = pack_reply_p(outbuf, cmd.request_id, 0, ERR_SERVFAIL, 0);
+			SAFE(send_full(sock, outbuf, len));
+		}
 	}
+}
+
+void do_session_init(int sock)
+{
+	char client_intro[9];
+	uint16_t length, version;
+	struct intro intro;
+	char * outbuf;
+
+	/* wait for client intro */
+	SAFE(recv_full(sock, client_intro, 9));
+	/* client intro should be "NewTP" - length - version */
+	if (!strncmp("NewTP", client_intro, 5)) {
+		err("invalid client intro string");
+		exit(1);
+	}
+	unpack(client_intro + 5, "ss", &length, &version);
+	logp("client connected, version %d", version);
+
+	/* ignore arguments after version */
+	if (length > 2) skip_data(sock, length - 2);
+
+	/* do not check version because we can't do anything with it, this is v1 */
+
+	/* intro data */
+	intro.version = 1;
+	intro.max_handles = handle_init();
+	intro.max_opendirs = MAX_OPENDIRS;
+	intro.platform_len = 5;
+	intro.platform = "posix";
+	intro.authstr_len = 0;
+	intro.authstr = NULL;
+	intro.num_extensions = 0;
+
+	length = SIZEOF_intro(&intro);
+	outbuf = xmalloc(length + 5 + 2);
+	assert(pack(outbuf, "5Bs", "NewTP", length) == 7);
+	assert(pack_intro(outbuf + 7, &intro) == length);
+
+	SAFE(send_full(sock, outbuf, length + 7));
+	free(outbuf);
+
+	log("session initialized");
+}
+
+void do_sasl_auth (int sock)
+{
+	/* do nothing now */
 }
 
 void fork_client (int client)
@@ -108,7 +168,14 @@ void fork_client (int client)
 	child = 1;
 	childsock = client;
 	close_server_sockets();
-	work(childsock);
+	log("connection received");
+
+	inbuf = xmalloc(MAX_LENGTH * 2);
+	outbuf = xmalloc(MAX_LENGTH * 2); /* needed? */
+
+	do_session_init(childsock);
+	do_sasl_auth(childsock);
+	do_work(childsock);
 	exit(0);
 }
 

@@ -15,24 +15,52 @@
 
 struct params_offlen {
 	uint64_t offset;
-	uint32_t length;
+	uint16_t length;
 };
 
 struct command {
-	uint16_t id;		/* return identifier TODO 16bits?? */
-	uint16_t command;	/* TODO 16bits?? */
+	uint16_t request_id;	/* return identifier */
+	uint8_t  extension;
+	uint8_t  command;
 	uint16_t handle;	/* file resource handle */
+	uint16_t length;
 };
 
 struct reply {
-	uint16_t	id;		/* same as in command */
-	uint8_t		status;
+	uint16_t request_id;	/* same as in command */
+	uint8_t  extension;
+	uint8_t  result;
+	uint16_t length;
 };
 
 struct intro {
-	uint16_t	version;
-	uint16_t	maxhandles;
-	uint32_t	maxdata;
+	uint16_t version;
+	uint16_t max_handles;
+	uint16_t max_opendirs;
+	uint16_t platform_len;
+	char *   platform;
+	uint16_t authstr_len;
+	char *   authstr;
+	uint16_t num_extensions;
+};
+
+struct extension {
+	uint8_t  code;
+	uint16_t name_len;
+	char *   name;
+};
+
+struct auth_initial {
+	uint16_t mechanism_len;
+	char *   mechanism;
+	uint16_t response_len;
+	char *   response;
+};
+
+struct auth_outcome {
+	uint8_t  result;
+	uint16_t adata_len;
+	char *   adata;
 };
 
 /* actual values */
@@ -45,12 +73,14 @@ struct intro {
 #define PERM_READ	0x01
 #define PERM_WRITE	0x02
 struct dir_entry {
-	uint16_t	len;
+	uint16_t	name_len;
 	char *		name;
 	uint8_t		type;
 	uint8_t		perm;
 	uint64_t	size;
 };
+
+#define MAX_OPENDIRS 5
 
 #include "struct_helpers.h"
 

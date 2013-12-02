@@ -21,12 +21,6 @@
 #include "structs.h"
 #include "tools.h"
 
-/* 1MB in hex */
-#define MAXDATA 0x100000
-#define MAXBUFFER 0x500000
-/* 128kB in hex */
-#define DIRBUFFER 0x20000
-
 /* to be used with recv_* and send_* only. file-related syscalls must handle their errors */
 #define MAYBE_RET(what) { \
 	int HANDLEret = what; \
@@ -49,11 +43,12 @@
 	return ret; \
 }
 
-#define VALIDATE_HANDLE(h, sock, cmd) { \
+#define REPLY(s, len) pack_reply_p(response, cmd->request_id, 0, (s), (len)) + (len)
+
+#define VALIDATE_HANDLE(h) \
 	h = handle_get(cmd->handle); \
-	if (!h) return send_reply_p(sock, cmd->id, STAT_BADHANDLE); \
-	if (!h->path) return send_reply_p(sock, cmd->id, STAT_NOTFOUND); \
-}
+	if (!h) return REPLY(ERR_BADHANDLE, 0); \
+	if (!h->path) return REPLY(ERR_NOTFOUND, 0);
 
 /***** directory listing functions *****/
 
@@ -86,18 +81,16 @@ int fill_stat (char const * path, struct dir_entry * entry, int writable)
 int fill_entry (char const * directory, int dlen, struct dirent const * dirent, struct dir_entry * entry, int writable)
 {
 	char * path;
-	int len, ret;
-	struct stat st;
+	int len;
 	assert(entry); assert(dirent);
 	/* entry is pre-allocated, dirent should already be checked for null */
 
 	len = strlen(dirent->d_name);
-	if (entry->len < len) {
-		free(entry->name); /* entry->name should either be NULL or a malloc'd chunk */
-		entry->name = xmalloc(len + 1);
+	if (entry->name_len < len) {
+		entry->name = xrealloc(entry->name, len + 1); /* entry->name should either be NULL or a malloc'd chunk */
 	}
-	entry->len = len; /* overwriting the len info, so if there was a preallocated chunk,
-		we don't know its size now and we may be reallocating needlessly. still, it's
+	entry->name_len = len; /* overwriting the len info, so if there was a preallocated chunk,
+		we don't know its size anymore and we may be reallocating needlessly. still, it's
 		better than reallocating every time */
 	strncpyz(entry->name, dirent->d_name, len);
 
@@ -110,161 +103,159 @@ int fill_entry (char const * directory, int dlen, struct dirent const * dirent, 
 
 	free(path);
 
-	return SIZEOF_dir_entry - sizeof(char*) + entry->len;
+	return SIZEOF_dir_entry(entry);
 }
 
 /**** actual command implementations ****/
 
-int cmd_assign (int sock, struct command *cmd)
+int cmd_ASSIGN (struct command * cmd, char * payload, char * response)
 {
-	char * buf = xmalloc(MAXDATA);
-	int len;
-
-	MAYBE_RET_FREEING(buf, recv_length(sock, &len));
-	if (len > 0) {
-		if (len <= MAXDATA) {
-			MAYBE_RET_FREEING(buf, recv_full(sock, buf, len));
-		} else {
-			/* fail, kick the connection */
-			free(buf);
-			return -1;
-		}
-	} /* else this is attempt to assign zero-length handle, which is perfectly OK */
-	
-	RET_FREEING(buf, send_reply_p(sock, cmd->id, handle_assign(cmd->handle, buf, len)));
+	int res = handle_assign(cmd->handle, payload, cmd->length);
+	return REPLY(res, 0);
 }
 
-int list_shares (int sock, struct command *cmd)
+int list_shares (struct command * cmd, char * response)
 {
-	char * buf = xmalloc(DIRBUFFER);
-	int len = DIRBUFFER;
-	int filled = 0;
+	int filled = sizeof(uint16_t);
+	char * buf = response + SIZEOF_reply();
+	int entry_len = 0;
+	int entries = 0;
+	struct dir_entry entry;
 	struct share * share = NULL;
 	log("listing root");
+
+	/* `buf` is starting at position after the reply packet,
+	 * `filled` is size of payload in use, starts at length of entries counter */
+
 	while ((share = share_next(share))) {
-		int perm = 0;
-		int elen = SIZEOF_dir_entry - sizeof(char*) + share->nlen;
-		if (filled + elen > len) {
-			len *= 2;
-			buf = xrealloc(buf, len);
-		}
-		if (!access(share->path, R_OK | X_OK)) perm |= PERM_READ;
-		if (share->writable && !access(share->path, W_OK)) perm |= PERM_WRITE;
+		entry.name_len = share->nlen;
+		entry.name = share->name;
 		/* TODO account for non-directory shares (individual files, devices perhaps??) */
-		pack(buf + filled, FORMAT_dir_entry, share->nlen, share->name, ENTRY_DIR, perm, (uint64_t)0);
-		filled += elen;
+		entry.type = ENTRY_DIR;
+		entry.perm = 0;
+		if (!access(share->path, R_OK | X_OK)) entry.perm |= PERM_READ;
+		if (share->writable && !access(share->path, W_OK)) entry.perm |= PERM_WRITE;
+		entry.size = 0;
+
+		entry_len = pack_dir_entry(buf + filled, &entry);
+		if (filled + entry_len > MAX_LENGTH) {
+			break;
+		}
+		filled += entry_len;
+		++entries;
 	}
-	MAYBE_RET_FREEING(buf, send_reply_p(sock, cmd->id, STAT_OK));
-	RET_FREEING(buf, send_data(sock, buf, filled));
+	/* TODO do something about repeated read */
+
+	/* write number of entries at start of buf */
+	pack(buf, "s", entries);
+	return REPLY(STAT_OK, filled);
 }
 
-int cmd_list (int sock, struct command *cmd)
+int cmd_REWINDDIR (struct command * cmd, char * payload, char * response)
 {
 	struct handle * h;
-	VALIDATE_HANDLE(h, sock, cmd);
-	logp("CMD_LIST %d (%s)", cmd->handle, h->path);
-
-	if (!h->path[0]) return list_shares(sock, cmd);
+	VALIDATE_HANDLE(h);
+	logp("CMD_REWINDDIR %d (%s)", cmd->handle, h->path);
+	
+	if (!h->path[0]) return REPLY(STAT_OK, 0);
 
 	if (h->dir) closedir(h->dir);
 	h->dir = opendir(h->path);
 	if (!h->dir) {
 		int err;
-		if (errno == EACCES) err = STAT_DENIED;
-		else if (errno == ENOENT) err = STAT_NOTFOUND;
-		else if (errno == ENOTDIR) err = STAT_NOTDIR;
-		else if (errno == EMFILE || errno == ENFILE) /* TODO handle this better */ err = STAT_BADHANDLE;
-		else err = STAT_SERVFAIL;
+		if (errno == EACCES) err = ERR_DENIED;
+		else if (errno == ENOENT) err = ERR_NOTFOUND;
+		else if (errno == ENOTDIR) err = ERR_NOTDIR;
+		else if (errno == EMFILE || errno == ENFILE) /* TODO handle this better */
+				err = ERR_BADHANDLE;
+		else err = ERR_FAIL;
 
-		return send_reply_p(sock, cmd->id, err);
+		return REPLY(err, 0);
 	}
-	h->entry.len = 0;
+
+	h->entry.name_len = 0;
 	free(h->entry.name);
 	h->entry.name = NULL;
-	return cmd_list_cont(sock, cmd);
+
+	return REPLY(STAT_OK, 0);
 }
 
-int cmd_list_cont (int sock, struct command *cmd)
+int cmd_READDIR (struct command * cmd, char * payload, char * response)
 {
-	char * buffer;
-	int filled = 0;
+	int filled = sizeof(uint16_t);
+	int entries = 0;
+	char * buf = response + SIZEOF_reply();
 	struct dirent * dirent;
 	struct handle * h;
-	VALIDATE_HANDLE(h, sock, cmd);
-	logp("listing %d (%s)", cmd->handle, h->path);
+	VALIDATE_HANDLE(h);
+	logp("CMD_READDIR %d (%s)", cmd->handle, h->path);
+
+	if (!h->path[0]) return list_shares(cmd, response);
 
 	/* continues listing on preinitialized dir handle */
 	if (!h->dir) {
 		log("invalid continuation");
-		return send_reply_p(sock, cmd->id, STAT_NOCONTINUE);
+		return REPLY(ERR_READDIR, 0);
 	}
 
-	buffer = xmalloc(DIRBUFFER);
 	if (h->entry.name) { /* append carried-over entry */
-		assert(h->elen < DIRBUFFER); /* XXX handle this better? meh */
-		pack(buffer + filled, FORMAT_dir_entry,
-			h->entry.len, h->entry.name,
-			h->entry.type, h->entry.perm, h->entry.size);
-		filled += h->elen;
+		filled += pack_dir_entry(buf + filled, &h->entry);
 	}
+
 	while ((dirent = readdir(h->dir))) {
 		/* skip "." and ".." */
 		if (dirent->d_name[0] == '.')
 			if (dirent->d_name[1] == 0 || (dirent->d_name[1] == '.' && dirent->d_name[2] == 0)) continue;
 		/* fill the entry */
-		h->elen = fill_entry(h->path, h->plen, dirent, &h->entry, h->writable);
+		fill_entry(h->path, h->plen, dirent, &h->entry, h->writable);
 		if (h->entry.type == ENTRY_BAD) continue;
-		if (filled + h->elen < DIRBUFFER) {
-			pack(buffer + filled, FORMAT_dir_entry,
-				h->entry.len, h->entry.name,
-				h->entry.type, h->entry.perm, h->entry.size);
-			filled += h->elen;
-		} else {
-			MAYBE_RET_FREEING(buffer, send_reply_p(sock, cmd->id, STAT_CONT));
-			MAYBE_RET_FREEING(buffer, send_data(sock, buffer, filled));
-			free(buffer);
-			logp("sent %d bytes continued", filled);
-			return filled;
+		h->elen = pack_dir_entry(buf + filled, &h->entry);
+		
+		if (filled + h->elen > MAX_LENGTH) {
+			break;
 		}
+		filled += h->elen;
+		++entries;
 	}
-	/* we got to the end */
-	MAYBE_RET_FREEING(buffer, send_reply_p(sock, cmd->id, STAT_OK));
-	MAYBE_RET_FREEING(buffer, send_data(sock, buffer, filled));
-	free(buffer);
-	free(h->entry.name);
-	h->entry.name = NULL;
-	closedir(h->dir);
-	h->dir = NULL;
-	logp("sent %d bytes", filled);
-	return filled;
+
+	if (!dirent) {
+		/* end of listing, do stuff to directory */
+		/* painted myself into a corner with the fukken spec (return zero once, then close) haven't i */
+	}
+
+	logp("sent %d items, %d bytes", entries, filled);
+	pack(buf, "s", entries);
+	return REPLY(STAT_OK, filled);
 }
 
-int cmd_stat (int sock, struct command *cmd)
+int cmd_STAT (struct command * cmd, char * payload, char * response)
 {
 	struct handle * h;
 	struct dir_entry entry;
-	int err;
+	int len;
 
-	VALIDATE_HANDLE(h, sock, cmd);
+	VALIDATE_HANDLE(h);
 	logp("CMD_STAT %d (%s)",  cmd->handle, h->path);
 
-	err = fill_entry(h->path, &entry, h->writable);
-
-	MAYBE_RET(send_reply_p(sock, cmd->id, STAT_OK));
+	fill_stat(h->path, &entry, h->writable);
+	entry.name_len = 0;
+	entry.name = NULL;
+	len = pack_dir_entry(response + SIZEOF_reply(), &entry);
+	return REPLY(STAT_OK, len); /* TODO tohle opravdu neni dobre */
 }
 
-int cmd_read (int sock, struct command *cmd)
+int cmd_READ (struct command * cmd, char * payload, char * response)
 {
 	struct handle * h;
 	int err;
 	int done = 0;
-	char * buf;
+	char * buf = response + SIZEOF_reply();
 	struct params_offlen params;
 
-	/* be a good guy and pick parameters first */
-	MAYBE_RET(recv_params_offlen(sock, &params));
+	/* TODO make sure packet actually contains enough data! */
+	unpack_params_offlen(payload, &params);
 
-	VALIDATE_HANDLE(h, sock, cmd);
+	VALIDATE_HANDLE(h);
 	logp("CMD_READ %d (%s): ofs %llu, len %d", cmd->handle, h->path, params.offset, params.length);
 
 	if (h->fd > 0 && h->open_w) {
@@ -275,11 +266,11 @@ int cmd_read (int sock, struct command *cmd)
 		RETRY1(h->fd, open(h->path, O_RDONLY));
 		err = STAT_OK;
 		if (h->fd == -1) { /* open failed */
-			if (errno == EACCES) err = STAT_DENIED;
-			else if (errno == ENOENT) err = STAT_NOTFOUND;
-			else if (errno == ENOTDIR) err = STAT_BADPATH;
-			else err = STAT_SERVFAIL;
-			return send_reply_p(sock, cmd->id, err);
+			if (errno == EACCES) err = ERR_DENIED;
+			else if (errno == ENOENT) err = ERR_NOTFOUND;
+			else if (errno == ENOTDIR) err = ERR_BADPATH;
+			else err = ERR_FAIL;
+			return REPLY(err, 0);
 		}
 		h->open_w = 0;
 	}
@@ -287,154 +278,113 @@ int cmd_read (int sock, struct command *cmd)
 	RETRY1(err, lseek(h->fd, params.offset, SEEK_SET));
 	if (err == -1) {
 		/* something bad went wronger */
-		return send_reply_p(sock, cmd->id, STAT_SERVFAIL);
+		return REPLY(ERR_BADOFFSET, 0);
 	}
 
-	if (params.length > MAXBUFFER) params.length = MAXBUFFER;
-	assert(params.length < SSIZE_MAX); /* "If count is greater than SSIZE_MAX, the result is unspecified." */
-	buf = xmalloc(params.length);
 	/* manual retry-loop */
 	while (done < params.length) {
 		err = read(h->fd, buf + done, params.length - done);
 		if (err == -1) {
 			if (errno == EINTR) continue;
 			else if (errno == EISDIR || errno == EFAULT) {
-				RET_FREEING(buf, send_reply_p(sock, cmd->id, STAT_NOTFILE));
+				return REPLY(ERR_NOTFILE, done);
 			} else if (errno == EIO) {
-				if (done > 0) /* return short read */ break;
-				else RET_FREEING(buf, send_reply_p(sock, cmd->id, STAT_IO));
+				return REPLY(ERR_IO, done);
 			} else {
-				RET_FREEING(buf, send_reply_p(sock, cmd->id, STAT_SERVFAIL));
+				return REPLY(ERR_FAIL, done);
 			}
 		} else if (err == 0) {
-			/* EOF - short read */
+			/* end of file */
+			close(h->fd);
+			h->fd = -1;
 			break;
 		} else {
 			done += err;
 		}
 	}
-	/* we have read all the requested data */
-	MAYBE_RET_FREEING(buf, send_reply_p(sock, cmd->id, STAT_OK));
-	RET_FREEING(buf, send_data(sock, buf, done));
+	return REPLY(STAT_OK, done);
 }
 
-#define MIN(a,b) ((a) > (b) ? (b) : (a))
-int skip_data(int sock, int len)
-{
-	char buf[8192];
-	while (len > 0) {
-		MAYBE_RET(recv_full(sock, buf, MIN(len,8192)));
-		len -= 8192;
-	}
-	return 1;
-}
-
-int cmd_write (int sock, struct command *cmd)
+int cmd_WRITE (struct command * cmd, char * payload, char * response)
 {
 	struct handle * h;
 	int err;
-	int done = 0, total = 0;
-	int len;
-	char * buf;
-	struct params_offlen params;
+	int done = 0;
+	int write_length;
+	uint64_t offset;
 
 	/* be a good guy and pick parameters first */
-	MAYBE_RET(recv_params_offlen(sock, &params));
+	unpack(payload, "l", &offset);
+	write_length = cmd->length - sizeof(uint64_t);
+
+	/* clear response number */
+	pack(response + SIZEOF_reply(), "s", 0);
 
 	/* TODO make sure that handles to "files" in "root" return STAT_DENIED instead of NOTFOUND */
-	VALIDATE_HANDLE(h, sock, cmd);
-	logp("CMD_WRITE %d (%s): ofs %llu, len %d", cmd->handle, h->path, params.offset, params.length);
+	VALIDATE_HANDLE(h);
+	logp("CMD_WRITE %d (%s): ofs %llu, len %d", cmd->handle, h->path, offset, write_length);
 
-	if (!h->writable) return send_reply_p(sock, cmd->id, STAT_DENIED);
+	if (!h->writable) return REPLY(ERR_DENIED, sizeof(uint16_t));
 
 	if (h->fd > 0 && !h->open_w) {
 		close(h->fd);
 		h->fd = -1;
 	}
 	if (h->fd == -1) {
-		RETRY1(h->fd, open(h->path, O_CREAT | O_WRONLY, 0644)); /* TODO think about the mode some more */
+		RETRY1(h->fd, open(h->path, O_CREAT | O_WRONLY)); /* TODO think about mode? */
 		err = STAT_OK;
 		if (h->fd == -1) { /* open failed */
-			if (errno == EACCES) err = STAT_DENIED;
-			else if (errno == EISDIR) err = STAT_NOTFILE;
-			else if (errno == ENOENT) err = STAT_NOTFOUND;
-			else if (errno == ENOTDIR) err = STAT_BADPATH;
-			else err = STAT_SERVFAIL;
-			/* XXX maybe we should send_reply_p before skip_data */
-			MAYBE_RET(skip_data(sock, params.length));
-			return send_reply_p(sock, cmd->id, err);
+			if (errno == EACCES) err = ERR_DENIED;
+			else if (errno == EISDIR) err = ERR_NOTFILE;
+			else if (errno == ENOENT) err = ERR_NOTFOUND;
+			else if (errno == ENOTDIR) err = ERR_BADPATH;
+			else err = ERR_FAIL;
+			return REPLY(err, sizeof(uint16_t));
 		}
 		h->open_w = 1;
 	}
 
 	/* we created the file if we could, now we can return in case of zero write */
-	if (params.length == 0) {
+	if (write_length == 0) {
 		if (fsync(h->fd) == -1) {
-			return send_reply_p(sock, cmd->id, STAT_IO);
+			return REPLY(ERR_IO, sizeof(uint16_t)); /* TODO only IO? */
 		} else {
-			MAYBE_RET(send_reply_p(sock, cmd->id, STAT_OK));
-			return send_length(sock, 0);
+			return REPLY(STAT_OK, sizeof(uint16_t));
 		}
 	}
 
 	/* TODO check whether the open handle belongs to the correct path */
-	RETRY1(err, lseek(h->fd, params.offset, SEEK_SET));
+	RETRY1(err, lseek(h->fd, offset, SEEK_SET));
 	if (err == -1) {
 		/* something bad went wronger */
-		MAYBE_RET(skip_data(sock, params.length));
-		return send_reply_p(sock, cmd->id, STAT_SERVFAIL);
+		return REPLY(ERR_FAIL, sizeof(uint16_t));
 	}
 
-	len = MIN(params.length, MAXBUFFER);
-	buf = xmalloc(len);
 	/* manual retry-loop */
-	while (params.length > 0) {
-		len = MIN(params.length, MAXBUFFER);
-		done = 0;
-		MAYBE_RET_FREEING(buf, recv_full(sock, buf, len));
-		while (done < len) {
-			err = write(h->fd, buf + done, len - done);
-			if (err == -1) {
-				if (errno == EINTR) continue;
-				if (total > 0) {
-					MAYBE_RET_FREEING(buf, send_reply_p(sock, cmd->id, STAT_PARTIAL));
-					RET_FREEING(buf, send_length(sock, total));
-				} else if (errno == EIO) {
-					RET_FREEING(buf, send_reply_p(sock, cmd->id, STAT_IO));
-				} else if (errno == ENOSPC) {
-					RET_FREEING(buf, send_reply_p(sock, cmd->id, STAT_FULL));
-				} else {
-					RET_FREEING(buf, send_reply_p(sock, cmd->id, STAT_SERVFAIL));
-				}
-			} else {
-				done += err;
-				total += err;
-			}
+	payload += sizeof(uint64_t);
+	while (write_length > 0) {
+		err = write(h->fd, payload, write_length);
+		if (err == -1) {
+			if (errno == EINTR) continue;
+			if (errno == EIO) err = ERR_IO;
+			else if (errno == ENOSPC) err = ERR_DEVFULL;
+			else err = ERR_FAIL;
+			/* where is TOOBIG? TODO */
+			return REPLY(err, sizeof(uint16_t));
+		} else {
+			payload += err;
+			write_length -= err;
 		}
-		params.length -= len;
 	}
 	/* we have received and written all the requested data */
-	free(buf);
-	return send_reply_p(sock, cmd->id, STAT_OK);
+	return REPLY(STAT_OK, sizeof(uint16_t));
 }
 
-int cmd_delete (int sock, struct command *cmd)
+int cmd_DELETE (struct command * cmd, char * payload, char * response)
 {
 	return -1;
 }
-int cmd_rename (int sock, struct command *cmd)
+int cmd_RENAME (struct command * cmd, char * payload, char * response)
 {
 	return -1;
-}
-
-int server_init (int sock)
-{
-	struct intro whoami;
-
-	/* intro */
-	whoami.version = 0;
-	whoami.maxhandles = handle_init();
-	whoami.maxdata = MAXDATA;
-
-	return send_intro(sock, &whoami);
 }

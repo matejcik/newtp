@@ -109,15 +109,15 @@ int handle_assign (uint16_t handle, char const * buf, int len)
 	int pos = 0;
 	int shlen = -1; /* share len */
 
-	if (handle >= MAXHANDLES) return STAT_BADHANDLE;
+	if (handle >= MAXHANDLES) return ERR_BADHANDLE;
 
 	while (pos < len) {
-		if (!*c) return STAT_BADPATH;
+		if (!*c) return ERR_BADPATH;
 		if (*c == '/' && shlen == -1) shlen = c - buf;
 
-		if (state == DOT1 && *c == '/') return STAT_BADPATH;
-		if (state == DOT2 && *c == '/') return STAT_BADPATH;
-		if (state == SLASH && *c == '/') return STAT_BADPATH;
+		if (state == DOT1 && *c == '/') return ERR_BADPATH;
+		if (state == DOT2 && *c == '/') return ERR_BADPATH;
+		if (state == SLASH && *c == '/') return ERR_BADPATH;
 		if (*c == '/') state = SLASH;
 		else if (state == SLASH && *c == '.') state = DOT1;
 		else if (state == DOT1 && *c == '.') state = DOT2;
@@ -125,7 +125,7 @@ int handle_assign (uint16_t handle, char const * buf, int len)
 
 		++pos; ++c;
 	}
-	if (state == DOT1 || state == DOT2) return STAT_BADPATH;
+	if (state == DOT1 || state == DOT2) return ERR_BADPATH;
 	if (shlen == -1) shlen = len;
 	/* path is OK, proceed */
 

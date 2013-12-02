@@ -3,19 +3,20 @@
 
 #include "structs.h"
 
-/* the functions are supposed to do their own replying;
- * return value is success/failure
- */
-int server_init (int socket);
+#define DECLARE_CMD(x) \
+	int cmd_##x (struct command * cmd, char * payload, char * response);
 
-int cmd_assign (int socket, struct command *cmd);
-int cmd_list (int socket, struct command *cmd);
-int cmd_list_cont (int socket, struct command *cmd);
-int cmd_stat (int socket, struct command *cmd);
-int cmd_read (int socket, struct command *cmd);
-int cmd_write (int socket, struct command *cmd);
-int cmd_delete (int socket, struct command *cmd);
-int cmd_rename (int socket, struct command *cmd);
-
+DECLARE_CMD(ASSIGN)
+DECLARE_CMD(STAT)
+DECLARE_CMD(SETATTR)
+DECLARE_CMD(STATVFS)
+DECLARE_CMD(READ)
+DECLARE_CMD(WRITE)
+DECLARE_CMD(TRUNCATE)
+DECLARE_CMD(DELETE)
+DECLARE_CMD(RENAME)
+DECLARE_CMD(MKDIR)
+DECLARE_CMD(REWINDDIR)
+DECLARE_CMD(READDIR)
 
 #endif

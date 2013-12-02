@@ -34,6 +34,8 @@ uint64_t ntohll (uint64_t netlong)
 	return ret;
 }
 
+#define ISDIGIT(x) ((x) >= '0' && (x) <= '9')
+
 int pack (char * const buffer, char const * format, ...)
 {
 	va_list ap;
@@ -85,11 +87,17 @@ int pack (char * const buffer, char const * format, ...)
 				buf += len;
 				break;
 			case 'B': /* byte string, length specified by previous short */
+				/* TODO check for null */
 				string = va_arg(ap, char *);
-				assert(format[-1] == 's');
+				assert(format[-1] == 's' || ISDIGIT(format[-1]));
 				memcpy(buf, string, len);
 				buf += len;
 				break;
+			default:
+				if (ISDIGIT(*format)) {
+					len = *format - '0';
+				}
+				/* else skip? */
 		}
 		++format;
 	}
@@ -99,8 +107,9 @@ int pack (char * const buffer, char const * format, ...)
 	return buf - buffer;
 }
 
-int unpack (char * const buffer, char const * format, ...)
+int unpack (char const * const buffer, char const * format, ...)
 {
+	// TODO check MAX length of buffer!
 	va_list ap;
 	char * buf = buffer;
 	char ** string;
@@ -124,6 +133,7 @@ int unpack (char * const buffer, char const * format, ...)
 				memcpy(v16bit, buf, 2);
 				buf += 2;
 				*v16bit = ntohs(*v16bit);
+				len = *v16bit;
 				break;
 			case 'i': /* 32bit int */
 				v32bit = va_arg(ap, uint32_t *);
@@ -148,13 +158,19 @@ int unpack (char * const buffer, char const * format, ...)
 				buf += len;
 				break;
 			case 'B': /* byte string, length specified by previous short */
+				/* TODO check for null */
 				string = va_arg(ap, char **);
-				assert(format[-1] == 's');
-				*string = xmalloc(*v16bit + 1);
-				memcpy(*string, buf, *v16bit);
-				(*string)[*v16bit] = 0;
-				buf += *v16bit;
+				assert(format[-1] == 's' || ISDIGIT(format[-1]));
+				*string = xmalloc(len + 1);
+				memcpy(*string, buf, len);
+				(*string)[len] = 0;
+				buf += len;
 				break;
+			default:
+				if (ISDIGIT(*format)) {
+					len = *format - '0';
+				}
+				/* else skip? */
 		}
 		++format;
 	}
@@ -200,25 +216,15 @@ int recv_full (int sock, void *data, int len)
 	return total;
 }
 
-int send_data (int sock, void *data, int len)
+int skip_data (int sock, int len)
 {
-	int ret;
-	if ((ret = send_length(sock, len)) <= 0) return ret;
-	if (len == 0) return 1;
-	if ((ret = send_full(sock, data, len) <= 0)) return ret;
+#define SKIP_BUF 16384
+	char buf[SKIP_BUF];
+	int r;
+	while (len > 0) {
+		r = recv(sock, buf, ((len > SKIP_BUF) ? SKIP_BUF : len), 0);
+		if (r <= 0) return r;
+		len -= r;
+	}
 	return 1;
-}
-
-int recv_length (int sock, int * len)
-{
-	uint32_t tmp;
-	int ret = recv_full(sock, &tmp, sizeof(uint32_t));
-	if (ret > 0) *len = ntohl(tmp);
-	return ret;
-}
-
-int send_length (int sock, int num)
-{
-	uint32_t tmp = htonl(num);
-	return send_full(sock, &tmp, sizeof(uint32_t));
 }

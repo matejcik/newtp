@@ -39,7 +39,7 @@ int handle_init ();
 
 /* try to assign the path from buf/len into handle.
 return STAT_OK on success, or appropriate
-STAT_* error code. */
+ERR_* error code. */
 int handle_assign (uint16_t handle, char const * buf, int len);
 
 /* check whether the given handle is within range and assigned.

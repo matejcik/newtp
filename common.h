@@ -12,19 +12,14 @@ uint64_t ntohll (uint64_t);
 /* binary serialization and de-serialization with sprintf-like
    format specifier */
 int pack (char * const, char const *, ...);
-int unpack (char * const, char const *, ...);
+int unpack (char const * const, char const *, ...);
 
 /* send()/recv() wrappers that don't return until the whole
    buffer is transferred */
 int send_full (int, void *, int);
 int recv_full (int, void *, int);
-
-/* send 32bit length + content of buffer */
-int send_data (int, void *, int);
-/* recv 32bit length */
-int recv_length (int, int *);
-/* send 32bit length */
-int send_length (int, int);
+/* discard len bytes from input */
+int skip_data (int, int);
 
 /* network call wrapper that dies on failure */
 #define SAFE(x) { \
