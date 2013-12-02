@@ -10,13 +10,24 @@ that we are using throughout this work.
 \section{Files and filesystems}
 
 Most modern operating systems share a common idea of what constitutes a filesystem. It is a collection of {\it
-files}, which are opaque strings of binary data. Individual files are referenced through a hierarchical
-tree-like structure of {\it directories}.  You can identify any file or directory by its {\it path}, which is
-a string of entry names delimited by path separator characters.\footnote{On UNIX-like systems, the path
-separator is a forward-slash, `\texttt{/}'. Windows recognizes both forward-slash and a backslash, but
-backslash is used more commonly. Nevertheless, we will be using forward-slash as a path separator everywhere.}
-You follow the (absolute) path by starting at the root directory and always descending into the directory
-named by the next path element, until the last element is remaining, naming the target entry.
+files} that are referenced through a hierarchical tree-like structure of {\it directories}.  You can identify
+any file or directory by its {\it path}, which is a string of entry names delimited by path separator
+characters.\footnote{On UNIX-like systems, the path separator is a forward-slash, `{\tt /}'.  Windows
+recognizes both forward-slash and a backslash, but backslash is used more commonly.  Nevertheless, we will be
+using forward-slash as a path separator everywhere.} You follow the (absolute) path by starting at the root
+directory and always descending into the directory named by the next path element, until the last element is
+remaining, naming the target entry.
+
+A {\it file} is usually taken to mean an opaque string of binary data. This was not always the case -- for
+instance, some historical systems treated files as structured collections of records. Several contemporary
+operating systems support the concept of ``forks'', which are separate data streams associated with a single
+filesystem object. This feature is rarely used in practice, mostly because of interoperability issues and poor
+end-user application support. We will be using the single-stream interpretation of the term.
+
+Throughout this work, the word ``filesystem'' is used to denote both the hierarchy of directories and files,
+and a concrete implementation or format of this hierarchy, with particular features.  In most cases, the
+intended meaning should be clear from context. Where ambiguous, the terms ``filesystem tree'' and ``filesystem
+type'' will be used in order to distinguish between the concepts.
 
 We want to be able to publish one or more subtrees of the filesystem on one computer, and access this part of
 the structure from another computer over a network.
@@ -47,7 +58,8 @@ built on top of TCP.
 \subsection{Encoding}
 
 Protocols consist of messages, which must be encoded for over-the-wire transfer. There are two main ways to do
-this: either as human-readable text, or as custom binary data.
+this: either as human-readable text, or as custom binary data. Alternately, it is possible to store the data
+in a self-describing format, which abstracts away the details of the encoding.
 
 \subsubsection{Text-based protocols}
 
@@ -79,6 +91,24 @@ prescribe the byte order, or it must provide means for the parties to negotiate.
 Unlike text-based protocols, debugging is not straightforward, humans require specialized tools that convert
 the binary messages to understandable text.
 
+\subsubsection{Self-describing data}
+
+A data format can be considered self-describing if it carries enough information to reconstruct an abstract
+representation of the data without pre-existing knowledge of its structure. A protocol designer might use this
+property to describe protocol messages in an abstract notation, such as ASN.1~\cite{asn-basic}, instead of
+specifying details of on-the-wire encoding. Implementers can then use a software library that converts data
+between an abstract representation and a self-describing format, itself either textual or binary. The
+resulting messages might not be human-readable, but developers can use tools that are not specific to their
+particular protocol.
+
+The advantage of this approach is that it simplifies both protocol specifications and implementations by
+providing a sort of ``interface'' that hides the low-level details. Obviously, this comes at the cost of
+control over these details.
+
+In terms of efficiency, a binary self-describing format is probably better than a text-based protocol, but
+still worse than a pure binary one, both in size and processing time. This is due to the fact that the
+self-describing format must carry additional information about itself, and that this information must be
+processed before data is extracted.
 
 \subsection{Roles}
 
