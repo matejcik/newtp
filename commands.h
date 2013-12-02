@@ -18,6 +18,8 @@
 #define CMD_READDIR	0x31
 
 #define STAT_OK		0x00 // Success
+#define STAT_CONTINUED	0x01 // Directory listing continues
+#define	STAT_FINISHED	0x02 // Directory listing ends
 
 #define ERR_BADPACKET		0x80 // Malformed request packet
 #define ERR_BADEXTENSION	0x81 // Unsupported extension

@@ -148,7 +148,7 @@ int list_shares (struct command * cmd, char * response)
 
 	/* write number of entries at start of buf */
 	pack(buf, "s", entries);
-	return REPLY(STAT_OK, filled);
+	return REPLY(STAT_FINISHED, filled);
 }
 
 int cmd_REWINDDIR (struct command * cmd, char * payload, char * response)
@@ -183,7 +183,8 @@ int cmd_REWINDDIR (struct command * cmd, char * payload, char * response)
 int cmd_READDIR (struct command * cmd, char * payload, char * response)
 {
 	int filled = sizeof(uint16_t);
-	int entries = 0;
+	int entries = 0, len = 0;
+	int result = STAT_FINISHED;
 	char * buf = response + SIZEOF_reply();
 	struct dirent * dirent;
 	struct handle * h;
@@ -209,23 +210,28 @@ int cmd_READDIR (struct command * cmd, char * payload, char * response)
 		/* fill the entry */
 		fill_entry(h->path, h->plen, dirent, &h->entry, h->writable);
 		if (h->entry.type == ENTRY_BAD) continue;
-		h->elen = pack_dir_entry(buf + filled, &h->entry);
+		len = pack_dir_entry(buf + filled, &h->entry);
 		
-		if (filled + h->elen > MAX_LENGTH) {
+		if (filled + len > MAX_LENGTH) {
+			result = STAT_CONTINUED;
 			break;
 		}
-		filled += h->elen;
+		filled += len;
 		++entries;
 	}
 
 	if (!dirent) {
 		/* end of listing, do stuff to directory */
-		/* painted myself into a corner with the fukken spec (return zero once, then close) haven't i */
+		closedir(h->dir);
+		h->dir = 0;
+		free(h->entry.name);
+		h->entry.name_len = 0;
+		h->entry.name = NULL;
 	}
 
 	logp("sent %d items, %d bytes", entries, filled);
 	pack(buf, "s", entries);
-	return REPLY(STAT_OK, filled);
+	return REPLY(result, filled);
 }
 
 int cmd_STAT (struct command * cmd, char * payload, char * response)
@@ -256,7 +262,7 @@ int cmd_READ (struct command * cmd, char * payload, char * response)
 	unpack_params_offlen(payload, &params);
 
 	VALIDATE_HANDLE(h);
-	logp("CMD_READ %d (%s): ofs %llu, len %d", cmd->handle, h->path, params.offset, params.length);
+	logp("CMD_READ %d (%s): ofs %llu, len %d", cmd->handle, h->path, (long long unsigned)params.offset, params.length);
 
 	if (h->fd > 0 && h->open_w) {
 		close(h->fd);
@@ -309,7 +315,6 @@ int cmd_WRITE (struct command * cmd, char * payload, char * response)
 {
 	struct handle * h;
 	int err;
-	int done = 0;
 	int write_length;
 	uint64_t offset;
 
@@ -322,7 +327,7 @@ int cmd_WRITE (struct command * cmd, char * payload, char * response)
 
 	/* TODO make sure that handles to "files" in "root" return STAT_DENIED instead of NOTFOUND */
 	VALIDATE_HANDLE(h);
-	logp("CMD_WRITE %d (%s): ofs %llu, len %d", cmd->handle, h->path, offset, write_length);
+	logp("CMD_WRITE %d (%s): ofs %llu, len %d", cmd->handle, h->path, (long long unsigned)offset, write_length);
 
 	if (!h->writable) return REPLY(ERR_DENIED, sizeof(uint16_t));
 
