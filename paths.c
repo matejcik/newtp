@@ -83,9 +83,11 @@ struct share * share_next (struct share * seed)
 	if (seed) seed++;
 	else seed = share_ht;
 
-	while (!seed->used && seed - share_ht < SHARE_HT_LEN) seed++;
-	if (!seed->used) return NULL;
-	return seed;
+	while (seed - share_ht < SHARE_HT_LEN) {
+		if (seed->used) return seed;
+		seed++;
+	}
+	return NULL;
 }
 
 void delhandle (struct handle * handle)
