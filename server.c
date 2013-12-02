@@ -73,7 +73,10 @@ void do_work (int sock)
 	while (1) {
 		SAFE(recv_full(sock, inbuf, SIZEOF_command(cmd)));
 		unpack_command(inbuf, &cmd);
-		SAFE(recv_full(sock, inbuf, cmd.length));
+		if (cmd.length) SAFE(recv_full(sock, inbuf, cmd.length));
+
+		logp("received command: request_id %d, ext %d, cmd %d, length %d",
+			cmd.request_id, cmd.extension, cmd.command, cmd.length);
 
 		len = 0;
 
@@ -114,25 +117,23 @@ void do_session_init(int sock)
 	char client_intro[9];
 	uint16_t length, version;
 	struct intro intro;
-	char * outbuf;
 
 	/* wait for client intro */
 	SAFE(recv_full(sock, client_intro, 9));
 	/* client intro should be "NewTP" - length - version */
-	if (!strncmp("NewTP", client_intro, 5)) {
+	if (strncmp("NewTP", client_intro, 5)) {
 		err("invalid client intro string");
 		exit(1);
 	}
-	unpack(client_intro + 5, "ss", &length, &version);
+	unpack(client_intro + 5, "ss", &version, &length);
 	logp("client connected, version %d", version);
 
 	/* ignore arguments after version */
-	if (length > 2) skip_data(sock, length - 2);
+	if (length > 0) skip_data(sock, length);
 
 	/* do not check version because we can't do anything with it, this is v1 */
 
 	/* intro data */
-	intro.version = 1;
 	intro.max_handles = handle_init();
 	intro.max_opendirs = MAX_OPENDIRS;
 	intro.platform_len = 5;
@@ -142,12 +143,10 @@ void do_session_init(int sock)
 	intro.num_extensions = 0;
 
 	length = SIZEOF_intro(&intro);
-	outbuf = xmalloc(length + 5 + 2);
-	assert(pack(outbuf, "5Bs", "NewTP", length) == 7);
-	assert(pack_intro(outbuf + 7, &intro) == length);
+	assert(pack(outbuf, "5Bss", "NewTP", version, length) == 9);
+	assert(pack_intro(outbuf + 9, &intro) == length);
 
-	SAFE(send_full(sock, outbuf, length + 7));
-	free(outbuf);
+	SAFE(send_full(sock, outbuf, length + 9));
 
 	log("session initialized");
 }

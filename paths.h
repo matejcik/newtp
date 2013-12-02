@@ -31,7 +31,6 @@ struct handle {
 	DIR *dir;
 	/* cache for directory reading */
 	struct dir_entry entry;
-	int elen;
 };
 
 /* initialize handles and return maxhandles */

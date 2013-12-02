@@ -34,7 +34,6 @@ struct reply {
 };
 
 struct intro {
-	uint16_t version;
 	uint16_t max_handles;
 	uint16_t max_opendirs;
 	uint16_t platform_len;

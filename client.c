@@ -16,35 +16,62 @@
 #include "structs.h"
 #include "tools.h"
 
-#define MYPORT "5438"
-/* LIFT on a phone */
+#define MYPORT "63987"
+/* NEWTP on a phone */
+
+char * inbuf;
+char * outbuf;
+
+void send_empty_command(int sock, int id, int command, int handle)
+{
+	pack_command_p(outbuf, id, 0, command, handle, 0);
+	SAFE(send_full(sock, outbuf, SIZEOF_command()));
+}
+
+void recv_reply(int sock, struct reply * reply)
+{
+	SAFE(recv_full(sock, inbuf, SIZEOF_reply()));
+	unpack_reply(inbuf, reply);
+	if (reply->length) SAFE(recv_full(sock, inbuf + SIZEOF_reply(), reply->length));
+}
 
 void print_listing (char * data, int len)
 {
 	struct dir_entry entry;
-	int pos = 0;
-	while (pos < len) {
+	int items;
+	int pos = 2;
+
+	unpack(data, "s", &items);
+
+	while (items && pos < len) {
 		char parms[3] = "---";
-		unpack(data + pos, FORMAT_dir_entry, &entry.len, &entry.name, &entry.type, &entry.perm, &entry.size);
+		unpack_dir_entry(data + pos, &entry);
 		if (entry.type == ENTRY_DIR) parms[0] = 'd';
 		else if (entry.type == ENTRY_OTHER) parms[0] = '?';
 		if (entry.perm & PERM_READ) parms[1] = 'r';
 		if (entry.perm & PERM_WRITE) parms[2] = 'w';
-		printf("%.3s %.*s\t\t%llu\n", parms, entry.len, entry.name, entry.size);
-		pos += SIZEOF_dir_entry - sizeof(char *) + entry.len;
+		printf("%.3s %.*s\t\t%llu\n", parms, entry.name_len, entry.name, entry.size);
+		pos += SIZEOF_dir_entry(&entry);
 		free(entry.name);
+		items--;
 	}
-	assert(pos == len);
+	assert(pos <= len);
 }
 
 void do_assign (int sock, char * path, int handle)
 {
 	struct reply reply;
-	SAFE(send_command_p(sock, 1, CMD_ASSIGN, handle));
-	SAFE(send_data(sock, path, strlen(path)));
-	SAFE(recv_reply(sock, &reply));
-	assert(reply.id == 1);
-	if (reply.status != STAT_OK) {
+	int len = strlen(path);
+
+	pack_command_p(inbuf, 1, 0, CMD_ASSIGN, handle, len);
+	strncpy(inbuf + SIZEOF_command(), path, len);
+	SAFE(send_full(sock, inbuf, SIZEOF_command() + len));
+
+	recv_reply(sock, &reply);
+	assert(reply.request_id == 1);
+	if (reply.length > 0) SAFE(skip_data(sock, reply.length));
+
+	if (reply.result != STAT_OK) {
 		fprintf(stderr, "failed to assign handle\n");
 		exit(1);
 	}
@@ -53,32 +80,28 @@ void do_assign (int sock, char * path, int handle)
 void do_list (int sock, char * path)
 {
 	struct reply reply;
-	char * data;
-	int len;
 	int id = 2;
 	int end = 0;
 
 	do_assign(sock, path, 1);
 
-	SAFE(send_command_p(sock, id, CMD_LIST, 1));
+	send_empty_command(sock, 2, CMD_REWINDDIR, 1);
+	send_empty_command(sock, ++id, CMD_READDIR, 1);
+	recv_reply(sock, &reply);
+	assert(reply.request_id == 2);
+	assert(reply.result == STAT_OK);
 	do {
-		SAFE(recv_reply(sock, &reply));
-		assert(reply.id == id);
-		switch (reply.status) {
-			case STAT_OK:
+		recv_reply(sock, &reply);
+		assert(reply.request_id == id);
+		switch (reply.result) {
+			case STAT_FINISHED:
 				end = 1;
-			case STAT_CONT:
-				SAFE(recv_length(sock, &len));
-				if (len > 0) {
-					data = xmalloc(len);
-					SAFE(recv_full(sock, data, len));
-					print_listing(data, len);
-					free(data);
-				}
-				if (!end) SAFE(send_command_p(sock, ++id, CMD_LIST_CONT, 1));
+			case STAT_CONTINUED:
+				print_listing(inbuf + SIZEOF_reply(), reply.length);
+				if (!end) send_empty_command(sock, ++id, CMD_READDIR, 1);
 				break;
 			default:
-				fprintf(stderr, "listing '%s' failed: %d\n", path, reply.status);
+				fprintf(stderr, "listing '%s' failed: %d\n", path, reply.result);
 				exit(1);
 		}
 	} while (!end);
@@ -87,12 +110,11 @@ void do_list (int sock, char * path)
 void do_get (int sock, char * path, char * target, int overwrite)
 {
 	struct reply reply;
-	char * data;
-	int dlen;
+	char * buf = outbuf;
 	int id = 2, rid = 1;
 	long ofs = 0;
 	int fd;
-	const int len = 65536;
+	const int len = MAX_LENGTH;
 
 	do_assign(sock, path, 1);
 
@@ -109,26 +131,26 @@ void do_get (int sock, char * path, char * target, int overwrite)
 	/* simplistic-smart approach: send many reads at once, for each success
 	 * send a next one. exit when first read fails/shorts. */
 	for (int i = 0; i < 8; i++) {
-		SAFE(send_command_p(sock, id++, CMD_READ, 1));
-		SAFE(send_params_offlen_p(sock, ofs, len));
+		buf += pack_command_p(buf, id++, 0, CMD_READ, 1, SIZEOF_params_offlen());
+		buf += pack_params_offlen_p(buf, ofs, len);
 		ofs += len;
 	}
+	SAFE(send_full(sock, outbuf, buf - outbuf));
+
 	while (1) {
-		SAFE(recv_reply(sock, &reply));
-		assert(reply.id > rid);
-		rid = reply.id;
-		if (reply.status != STAT_OK) {
+		recv_reply(sock, &reply);
+		assert(reply.request_id > rid);
+		rid = reply.request_id;
+		if (reply.result != STAT_OK) {
 			/* bail */
-			fprintf(stderr, "read failed: %x\n", reply.status);
+			fprintf(stderr, "read failed: %x\n", reply.result);
 			exit(1);
 		}
-		SAFE(recv_length(sock, &dlen));
-		if (dlen > 0) {
-			data = xmalloc(dlen);
-			SAFE(recv_full(sock, data, dlen));
+		if (reply.length > 0) {
+			buf = inbuf + SIZEOF_reply();
 			int l = 0;
 			do {
-				int i = write(fd, data + l, dlen - l);
+				int i = write(fd, buf + l, reply.length - l);
 				if (i <= 0) {
 					if (errno == EINTR) continue;
 					else {
@@ -137,14 +159,15 @@ void do_get (int sock, char * path, char * target, int overwrite)
 					}
 				}
 				l += i;
-			} while (l < dlen);
-			free(data);
+			} while (l < reply.length);
 		} else {
 			close(fd);
 			break;
 		}
-		SAFE(send_command_p(sock, id++, CMD_READ, 1));
-		SAFE(send_params_offlen_p(sock, ofs, len));
+		buf = outbuf;
+		buf += pack_command_p(buf, id++, 0, CMD_READ, 1, SIZEOF_params_offlen());
+		buf += pack_params_offlen_p(buf, ofs, len);
+		SAFE(send_full(sock, outbuf, buf - outbuf));
 		ofs += len;
 	}
 }
@@ -158,9 +181,9 @@ int main (int argc, char **argv)
 	struct addrinfo hints;
 	struct addrinfo *res;
 	struct intro intro;
-	struct reply reply;
 	char * command, * path, * target;
 	int sock;
+	uint16_t length, version;
 
 	if (argc < 3) {
 		printf("usage: %s <address> <command> [path]\n", argv[0]);
@@ -185,13 +208,23 @@ int main (int argc, char **argv)
 		return 2;
 	}
 
-	recv_intro(sock, &intro);
-	fprintf(stderr, "server version %d, max %d handles, max read of %d\n", intro.version, intro.maxhandles, intro.maxdata);
-	send_command_p(sock, 55, CMD_NOOP, 0);
-	recv_reply(sock, &reply);
-	fprintf(stderr, "server responds to ping!\n");
-	assert(reply.id == 55);
-	assert(reply.status == STAT_OK);
+	inbuf = xmalloc(MAX_LENGTH * 2);
+	outbuf = xmalloc(MAX_LENGTH * 2);
+
+	send_full(sock, outbuf, pack(outbuf, "5Bss", "NewTP", 1, 0));
+	recv_full(sock, inbuf, 9);
+	if (strncmp(inbuf, "NewTP", 5)) {
+		close(sock);
+		fprintf(stderr, "server sent invalid intro string, closing connetion\n");
+		return 3;
+	}
+	unpack(inbuf + 5, "ss", &version, &length);
+	assert(version == 1);
+	assert(length >= 10); // TODO fix unpack!
+	recv_full(sock, inbuf, length);
+	unpack_intro(inbuf, &intro);
+
+	fprintf(stderr, "server version %d, max %d handles, max %d dirs, platform %s\n", version, intro.max_handles, intro.max_opendirs, intro.platform);
 
 	if (!strcmp("list", command)) {
 		do_list(sock, path);
