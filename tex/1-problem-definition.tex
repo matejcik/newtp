@@ -107,14 +107,14 @@ to operate. This alone poses a number of issues that must be resolved.
 
 \subsubsection{Relative paths}
 
-The trivial way to represent a path is by using an absolute path string, i.e. one that specifies all path
+The trivial way to represent a path is by using an absolute path string, i.e., one that specifies all path
 components leading to the target object. Apart from this method, operating systems have a concept of {\it
 current directory} and paths relative to the current directory. Relative path can contain entries named
 ``\texttt{.}'' (refers to current directory) and ``\texttt{..}'' (parent directory).\footnote{For security
 reasons, protocol should prescribe, and implementations enforce, that ``\texttt{.}'' and ``\texttt{..}''
 components are forbidden in an absolute path.} In some cases, it can be useful to expose this functionality
 through the protocol -- either allowing the client to choose the current directory, or setting it at a fixed
-path (e.g.  authenticated user's home directory).
+path (e.g., authenticated user's home directory).
 
 \subsubsection{Validity of path string}
 
@@ -138,24 +138,24 @@ down to individual implementers. A better solution is to either prescribe or neg
 and then transcode filenames in client and server software.
 
 Newer filesystems enforce that a filename is a valid Unicode string, but on many widely used filesystems,
-filename can be an arbitrary string of bytes.\footnote{Unless the byte represents a forbidden character, e.g.
-forward-slash or null byte on UNIX, shell expansion characters on Windows etc.} In effect, a filesystem can
-store names that cannot be properly decoded in the system's character set. This presents a problem for the
-transcoding process.  An obvious solution is to ignore invalid filenames, but that is arguably not very
-useful. It is seemingly better to use replacement characters for the undecodable sequences, but in practice,
-this does not help very much, as this way of encoding is not roundtrip-safe. The client can get a listing that
-contains invalid filenames, but cannot specify them, because files with the modified names do not actually
-exist on the server. Moreover, it is impossible for the client to tell apart invalid filenames from valid ones
-that happen to contain the replacement characters, unless the replacement characters are forbidden in valid
-names.
+filename can be an arbitrary string of bytes.\footnote{Unless the byte represents a forbidden character --
+forward-slash or null byte on UNIX, shell expansion characters on Windows and similar.} In effect,
+a filesystem can store names that cannot be properly decoded in the system's character set. This presents
+a problem for the transcoding process.  An obvious solution is to ignore invalid filenames, but that is
+arguably not very useful. It is seemingly better to use replacement characters for the undecodable sequences,
+but in practice, this does not help very much, as this way of encoding is not roundtrip-safe. The client can
+get a listing that contains invalid filenames, but cannot specify them, because files with the modified names
+do not actually exist on the server. Moreover, it is impossible for the client to tell apart invalid filenames
+from valid ones that happen to contain the replacement characters, unless the replacement characters are
+forbidden in valid names.
 
-Explicit support for undecodable filenames is possible in several ways, e.g. through lossless transcoding of
+Explicit support for undecodable filenames is possible in several ways, e.g., through lossless transcoding of
 undecodable characters, or by refering to files in some other way than by name.
 
 
 \subsection{Download}
 
-Downloading, i.e. transfering files from server to client, is arguably the most basic capability provided by
+Downloading, i.e., transfering files from server to client, is arguably the most basic capability provided by
 a file transfer protocol. Client will request a file and server will respond by sending a binary stream of the
 file's contents. Failure modes are obvious: the identifier does not point to a file; file exists but cannot be
 read; or this client does not have permission to access the file.
@@ -166,7 +166,7 @@ resuming of interrupted downloads, seeking in media streams and the like. It is 
 wants to implement filesystem-like behavior over the protocol.
 
 A general-purpose protocol will treat files as opaque streams. However, in a specialized protocol, it might be
-useful to understand structure of the file. This can allow the client to e.g. query contents of the file as
+useful to understand structure of the file. This can allow the client to query contents of the file as
 a database, download only thumbnail or embedded metadata etc.
 
 \subsection{Upload}
@@ -237,7 +237,7 @@ Apart from contents of files and directories, the filesystem stores metadata abo
 creation date, last modification date, filesystem attributes, ownership and access rights, link count etc.
 Although it is not essential, a full-featured protocol will expose operations to query and modify this kind of
 metadata. It is also very useful to send this information along with directory listing -- querying each entry
-in a directory with hudreds or thousands of files would be woefully inefficient. On the other hand, it might
+in a directory with hundreds or thousands of files would be woefully inefficient. On the other hand, it might
 be useful to specify what kind of metadata to include in the listing.
 
 Filesystem metadata is obviously different on different filesystems and different operating systems. The
@@ -347,10 +347,10 @@ a number of separate computers can be deployed running the server software, and 
 directed to any of them without the need to synchronize state between the servers.
 
 Statelessness is limiting in that every request must be self-contained. That means that there are no
-authenticated sessions, every request must be authenticated separately. Same goes e.g. for filenames: in
-a sequence of requests for reading from the same file, the filename would have to be repeated in each of them.
-Advantages of stateless protocols don't apply well to long-running operations, because the progress of the
-operation itself is state and it is lost in case of failure.
+authenticated sessions, every request must be authenticated separately. Same goes for other properties, such
+as filenames: in a sequence of requests for reading from the same file, the filename would have to be repeated
+in each of them.  Advantages of stateless protocols don't apply well to long-running operations, because the
+progress of the operation itself is state and it is lost in case of failure.
 
 \subsection{Idempotence}
 
@@ -387,8 +387,8 @@ such as repeatedly deleting a file placed by a different client.
 This is especially important to note with file and directory creation operations. When running alone, the
 situation is very similar to the rename and delete discussion: an operation will repeatedly fail after first
 successful attempt. However, in the absence of a dedicated locking mechanism, many programs use temporary
-files and especially directories to indicate that a lock on particular resource is held.  For this usecase, it
-is very important to distinguish whether the create operation succeeded (the caller now holds the lock) or
+files and especially directories to indicate that a lock on particular resource is held.  For this use case,
+it is very important to distinguish whether the create operation succeeded (the caller now holds the lock) or
 failed (somebody else holds the lock).
 
 This problem is impossible to solve in a fully stateless protocol, and difficult in a stateful one as well. To
@@ -420,7 +420,7 @@ cache invalidation is especially important.
 
 Normally, a file transfer protocol would not make special arrangements for caching. It might be beneficial to
 at least informally describe the sort of behavior that can be expected. The simplest caching policy is
-client-dependent, i.e. the onus is on the client to periodically check freshness of its cache. As for write
+client-dependent, i.e., the onus is on the client to periodically check freshness of its cache. As for write
 cache, it is traditionally flushed when an user application closes the file.
 
 Specialized protocols, or protocols designed to act as filesystems, may prescribe more specific caching

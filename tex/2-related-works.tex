@@ -17,8 +17,8 @@ mostly describing how the standard has evolved in practical use.
 
 With FTP, the client establishes a text-based, line-oriented {\it control} connection to the server. Through this
 the user can configure session parameters, traverse and list directories and manipulate directory entries,
-similar to an interactive shell. Commands are designed for human use first, e.g. the HELP command, or the LIST
-command that lists contents of the current directory in a platform-dependent textual format. Actual file
+similar to an interactive shell. Commands are designed for human use first, e.g., the HELP command, or the
+LIST command that lists contents of the current directory in a platform-dependent textual format. Actual file
 transfers run on separate {\it data} connections which are negotiated on the control connection. This means
 that in order to support FTP transparently, firewalls and NATs must run deep packet inspection on FTP traffic.
 

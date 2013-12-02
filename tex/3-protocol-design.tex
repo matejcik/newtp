@@ -45,7 +45,7 @@ ensure cross-platform interoperability, and make the protocol secure by default.
 
 \subsection{Supported scenarios}
 
-NewTP is designed with three main usecases in mind.
+NewTP is designed with three main use cases in mind.
 
 %
 
@@ -139,16 +139,19 @@ time. This is even more true on high-latency networks like GPRS/EDGE. We want to
 networks as painless as possible. That means good support for interleaving of operations on a single
 connection, and reducing size of protocol messages.
 
-The choice of a binary protocol results in smaller messages. In addition, we recommend enabling TLS
-compression. The short maximum packet length means that in the ideal case, after a new operation is inserted
-into the outgoing stream, the client downloads at most 64 kB of data before receiving a response for the newly
-inserted operation. In practice, clients on high-latency networks will batch requests, so that when the new
-operation is inserted, it has to wait before the whole preceding batch is processed. However, there is room
-for implementations to perform flow control and send batched messages only as fast as they can receive
-responses, in which case it is possible to insert commands midway through.
+The choice of a binary protocol results in smaller messages. The short maximum packet length means that in the
+ideal case, after a new operation is inserted into the outgoing stream, the client downloads at most 64 kB of
+data before receiving a response for the newly inserted operation. In practice, clients on high-latency
+networks will batch requests, so that when the new operation is inserted, it has to wait before the whole
+preceding batch is processed. However, there is room for implementations to perform flow control and send
+batched messages only as fast as they can receive responses, in which case it is possible to insert commands
+midway through.
 
 This sort of interleaving rules out long operations, which is helpful even on fast networks. It means that it
 is easy to implement a responsive filesystem emulation on top of NewTP.
+
+To make the amount of transfered data even smaller, implementers may choose to enable TLS compression. Be
+advised, though, that encryption and compression interact in nontrivial ways TODO
 
 Transfer overhead works out to 24 bytes (TODO calculate based on actual packet!!!) per 64 kB when using
 maximum possible packet size. To put this in perspective, when downloading 2 GB of data at top speed, protocol
@@ -176,7 +179,7 @@ technically keeping authentication optional. This again simplifies the protocol.
 
 \subsection{Concurrency is out of scope}
 
-NewTP is intended to service usecases with minimal interactions between users and negligible amounts of
+NewTP is intended to service use cases with minimal interactions between users and negligible amounts of
 conflicts. Because of that, we decided not to put any locking mechanisms into the protocol. Locking is
 a decidedly complex problem in itself, and it is not a problem that NewTP is trying to solve.
 
@@ -192,7 +195,7 @@ recommend using a different protocol for scenarios that require it.
 In this version of the protocol, clients are fully responsible for managing their caches.  Depending on the
 application, a client should periodically check freshness of relevant data.  For filesystem emulation, clients
 should check cache freshness every time a file is opened, and perform server write when the file is closed.
-In addition, it is advisable to refresh directory cache at reasonable intervals, e.g. once a minute.  (XXX
+In addition, it is advisable to refresh directory cache at reasonable intervals, e.g., once a minute.  (XXX
 really?)
 
 We considered adding a mechanism through which the server could request cache invalidation. However, since all
@@ -215,8 +218,7 @@ will be terminated to prevent late delivery of further commands. This way the cl
 command that was successfully received by the server.
 
 Security of this extension is ensured by using tokens that are long enough to prevent guessing, and only
-providing the replay to the same user account. Implementations might also check that the new connection is
-coming from the same host as the old one.
+providing the replay to the same user account.
 
 %%
 
@@ -229,18 +231,18 @@ This section describes various technical details pertaining to design and implem
 \subsection{Packet format notation}
 
 Packets are described in a C-style format, data type preceding field name. Various packets use data types
-defined as follows:
+defined as follows. All numeric fields are stored in network byte order (big-endian).
 
 \def\ttitem#1{ \item[\ttfamily #1] }
 \begin{description}[leftmargin=1.7cm,style=sameline]
 	\ttitem{byte} An 8-bit value (octet). Bytes represent command codes, result codes and other fields
 		where the value is one of a fixed set of possibilities. The values are written out in
-		hexadecimal notation, e.g. {\tt 0x07}.
+		hexadecimal notation, e.g., {\tt 0x07}.
 	\ttitem{uint16} Unsigned 16-bit integer
 	\ttitem{uint32} Unsigned 32-bit integer
 	\ttitem{uint64} Unsigned 64-bit integer
 	\ttitem{time\_t} Unsigned 64-bit integer, representing time in microseconds since the start of UNIX
-		epoch (1 January 1970, 0:00:00 UTC)
+		epoch (January 1, 1970, 0:00:00 UTC)
 	\ttitem{string} Byte sequence of arbitrary length, representing a Unicode string encoded in UTF-8.
 		The field is not null-terminated. Length is not part of the {\tt string} field, a separate
 		{\tt uint16} length information must precede it.
@@ -346,7 +348,7 @@ Extensions can also provide new attribute codes.
 		Directory entry type: \newline
 		{\tt 0x01} -- File \newline
 		{\tt 0x02} -- Directory \newline
-		{\tt 0x00} -- Other (e.g. device node) \newline
+		{\tt 0x00} -- Other (e.g., device node) \newline
 		{\tt 0xFF} -- Error entry
 		\\
 	\tline{0x01}{rights}{byte} & No &
@@ -470,10 +472,10 @@ After the TLS session is established, client introduces itself with the followin
 \begin{description}[parsep=1pt]
 	\ttitem{string newtp} \hfill \\
 		Fixed ASCII string ``{\tt NewTP}''
-	\ttitem{uint16 length} \hfill \\
-		Length of payload (in this case, 2)
 	\ttitem{uint16 version} \hfill \\
 		Protocol version
+	\ttitem{uint16 length} \hfill \\
+		Length of payload (in this case, 0)
 \end{description}
 
 Protocol version is 1. We specify the payload length for extensibility: in a future version, client might be
@@ -485,10 +487,10 @@ Server replies with the following packet:
 \begin{description}[parsep=1pt]
 	\ttitem{string newtp} \hfill \\
 		Fixed ASCII string ``{\tt NewTP}''
-	\ttitem{uint16 length} \hfill \\
-		Length of payload
 	\ttitem{uint16 version} \hfill \\
 		Protocol version.
+	\ttitem{uint16 length} \hfill \\
+		Length of payload
 	\ttitem{uint16 max\_handles} \hfill \\
 		Number of available file handles
 	\ttitem{uint16 max\_opendirs} \hfill \\
@@ -698,6 +700,8 @@ packet contains attribute query results, data read, details of error etc.
 	Code & Symbolic name & Description \\
 	\hline
 	\tline{0x00}{R\_OK} & Success \\
+	\tline{0x01}{R\_CONTINUED} & Directory listing continued \\
+	\tline{0x02}{R\_FINISHED} & Directory listing ends \\
 	\hline
 
 	\tline{0x80}{E\_BADPACKET} & Malformed request packet \\
@@ -939,7 +943,7 @@ Result data: none
 
 Specific errors:
 	E\_BADPATH if the file handle path, {\it or} the new path, is not acceptable
-	E\_BADMOVE if the move tries to make a directory loop (i.e. make a directory a subdirectory of itself)
+	E\_BADMOVE if the move tries to make a directory loop (i.e., make a directory a subdirectory of itself)
 		{\it or} if the new path exists and is a directory
 		{\it or} if the new path exists and is a file, but file handle refers to a directory
 		{\it or} if a component in the new path is not a directory
@@ -984,14 +988,16 @@ Arguments:
 data attributes
 
 Reads as many directory entries as possible and returns them as names and the specified set of attributes.
-Each attribute may be specified only once. If no more entries remain to be read, returns zero entries. This
-will destroy the ``prepared for reading'' state, so subsequent read attempts will return an error.
+Each attribute may be specified only once. Does not return {\tt R\_OK}: returns {\tt R\_CONTINUED} if there
+are more items to be read, or {\tt R\_FINISHED} if no items remain. Every success packet, including the final
+{\tt R\_FINISHED}, contains at least one directory entry.
 
 If the command is interrupted by an error, result data will still contain the entries that were successfully
-read.
+read. It is undefined whether ``prepared for reading'' state is lost on error.
 
-To obtain full directory listing, client must first call {\tt REWINDDIR} and then repeat calling {\tt READDIR}
-until the {\tt entries} value returned is zero.
+To obtain full directory listing, client must first call {\tt REWINDDIR} and then repeat calling {\tt
+READDIR} until it encounters {\tt R\_FINISHED} result code. At that point, ``prepared for reading'' state is
+lost and subsequent reads will return {\tt E\_READDIR}.
 
 Result data:
 uint16 entries

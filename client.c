@@ -38,7 +38,7 @@ void recv_reply(int sock, struct reply * reply)
 void print_listing (char * data, int len)
 {
 	struct dir_entry entry;
-	int items;
+	uint16_t items;
 	int pos = 2;
 
 	unpack(data, "s", &items);
