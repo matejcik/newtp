@@ -77,27 +77,21 @@ int pack (char * const buffer, char const * format, ...)
 				memcpy(buf, &v64bit, 8);
 				buf += 8;
 				break;
-			case 'Z': /* null-terminated string */
-				string = va_arg(ap, char *);
-				len = strlen(string);
-				v16bit = htons(len);
-				memcpy(buf, &v16bit, 2);
-				buf += 2;
-				memcpy(buf, string, len);
-				buf += len;
-				break;
 			case 'B': /* byte string, length specified by previous short */
-				/* TODO check for null */
 				string = va_arg(ap, char *);
 				assert(format[-1] == 's' || ISDIGIT(format[-1]));
-				memcpy(buf, string, len);
+				if (len > 0) {
+					assert(string);
+					memcpy(buf, string, len);
+				}
 				buf += len;
 				break;
 			default:
 				if (ISDIGIT(*format)) {
 					len = *format - '0';
+				} else {
+					assert(0);
 				}
-				/* else skip? */
 		}
 		++format;
 	}
@@ -107,11 +101,10 @@ int pack (char * const buffer, char const * format, ...)
 	return buf - buffer;
 }
 
-int unpack (char const * const buffer, char const * format, ...)
+int unpack (char const * const buffer, int available, char const * format, ...)
 {
-	// TODO check MAX length of buffer!
 	va_list ap;
-	char * buf = buffer;
+	char const * buf = buffer;
 	char ** string;
 	uint8_t * v8bit;
 	uint16_t * v16bit;
@@ -124,53 +117,48 @@ int unpack (char const * const buffer, char const * format, ...)
 	while (*format) {
 		switch (*format) {
 			case 'c': /* 8bit char */
+				if (available < 1) return -1;
 				v8bit = va_arg(ap, uint8_t *);
 				*v8bit = *buf;
-				buf += 1;
+				buf += 1; available -= 1;
 				break;
 			case 's': /* 16bit short */
+				if (available < 2) return -1;
 				v16bit = va_arg(ap, uint16_t *);
 				memcpy(v16bit, buf, 2);
-				buf += 2;
+				buf += 2; available -= 2;
 				*v16bit = ntohs(*v16bit);
 				len = *v16bit;
 				break;
 			case 'i': /* 32bit int */
+				if (available < 4) return -1;
 				v32bit = va_arg(ap, uint32_t *);
 				memcpy(v32bit, buf, 4);
-				buf += 4;
+				buf += 4; available -= 4;
 				*v32bit = ntohl(*v32bit);
 				break;
 			case 'l': /* 64bit long */
+				if (available < 8) return -1;
 				v64bit = va_arg(ap, uint64_t *);
 				memcpy(v64bit, buf, 8);
-				buf += 8;
+				buf += 8; available -= 8;
 				*v64bit = ntohll(*v64bit);
 				break;
-			case 'Z': /* null-terminated string */
-				string = va_arg(ap, char **);
-				memcpy(&len, buf, 2);
-				len = ntohs(len);
-				buf += 2;
-				*string = xmalloc(len + 1);
-				memcpy(*string, buf, len);
-				*string[len] = 0;
-				buf += len;
-				break;
 			case 'B': /* byte string, length specified by previous short */
-				/* TODO check for null */
 				string = va_arg(ap, char **);
 				assert(format[-1] == 's' || ISDIGIT(format[-1]));
+				if (available < len) return -1;
 				*string = xmalloc(len + 1);
 				memcpy(*string, buf, len);
 				(*string)[len] = 0;
-				buf += len;
+				buf += len; available -= len;
 				break;
 			default:
 				if (ISDIGIT(*format)) {
 					len = *format - '0';
+				} else {
+					assert(0);
 				}
-				/* else skip? */
 		}
 		++format;
 	}

@@ -29,8 +29,10 @@ struct handle {
 	int fd;
 	int open_w;
 	DIR *dir;
+	
 	/* cache for directory reading */
-	struct dir_entry entry;
+	char * entry_name;
+	int entry_len;
 };
 
 /* initialize handles and return maxhandles */

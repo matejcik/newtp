@@ -71,11 +71,11 @@ void do_work (int sock)
 	int len;
 
 	while (1) {
-		SAFE(recv_full(sock, inbuf, SIZEOF_command(cmd)));
-		unpack_command(inbuf, &cmd);
+		SAFE(recv_full(sock, inbuf, SIZEOF_command()));
+		unpack_command(inbuf, SIZEOF_command(), &cmd);
 		if (cmd.length) SAFE(recv_full(sock, inbuf, cmd.length));
 
-		logp("received command: request_id %d, ext %d, cmd %d, length %d",
+		logp("received command: request_id 0x%04x, ext 0x%02x, cmd 0x%02x, length %d",
 			cmd.request_id, cmd.extension, cmd.command, cmd.length);
 
 		len = 0;
@@ -114,22 +114,27 @@ void do_work (int sock)
 
 void do_session_init(int sock)
 {
-	char client_intro[9];
 	uint16_t length, version;
 	struct intro intro;
+	struct command cmd;
 
 	/* wait for client intro */
-	SAFE(recv_full(sock, client_intro, 9));
+	SAFE(recv_full(sock, inbuf, 7 + SIZEOF_command()));
 	/* client intro should be "NewTP" - length - version */
-	if (strncmp("NewTP", client_intro, 5)) {
+	if (strncmp("NewTP", inbuf, 5)) {
 		err("invalid client intro string");
 		exit(1);
 	}
-	unpack(client_intro + 5, "ss", &version, &length);
+	unpack(inbuf + 5, 2, "s", &version);
 	logp("client connected, version %d", version);
 
+	unpack_command(inbuf + 7, SIZEOF_command(), &cmd);
 	/* ignore arguments after version */
-	if (length > 0) skip_data(sock, length);
+	if (cmd.extension != EXT_INIT || cmd.command != INIT_WELCOME) {
+		err("invalid intro packet");
+		exit(1);
+	}
+	if (cmd.length > 0) skip_data(sock, cmd.length);
 
 	/* do not check version because we can't do anything with it, this is v1 */
 
@@ -142,11 +147,12 @@ void do_session_init(int sock)
 	intro.authstr = NULL;
 	intro.num_extensions = 0;
 
-	length = SIZEOF_intro(&intro);
-	assert(pack(outbuf, "5Bss", "NewTP", version, length) == 9);
-	assert(pack_intro(outbuf + 9, &intro) == length);
+	length  = pack(outbuf, "5Bs", "NewTP", (uint16_t)1);
+	length += pack_reply_p(outbuf + length, cmd.request_id, EXT_INIT, R_OK, SIZEOF_intro(&intro));
+	length += pack_intro(outbuf + length, &intro);
+	assert(length == 7 + SIZEOF_reply() + SIZEOF_intro(&intro));
 
-	SAFE(send_full(sock, outbuf, length + 9));
+	SAFE(send_full(sock, outbuf, length));
 
 	log("session initialized");
 }
@@ -252,7 +258,6 @@ int main (int argc, char ** argv)
 	/* make a socket, bind it, and listen on it: */
 	for (; res; res = res->ai_next) {
 		CHECK(s, socket(res->ai_family, res->ai_socktype, res->ai_protocol), continue);
-		logp("bound %d to %d with %d", s, res->ai_family, res->ai_protocol);
 		if (res->ai_family == AF_INET6) {
 			CHECK(err, setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY, &yes, sizeof(int)), /*nothing*/);
 		}

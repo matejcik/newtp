@@ -62,21 +62,11 @@ struct auth_outcome {
 	char *   adata;
 };
 
-/* actual values */
-#define ENTRY_FILE	1
-#define ENTRY_DIR	2
-#define ENTRY_OTHER	0
-#define ENTRY_BAD	0xff
-
-/* bitmasks */
-#define PERM_READ	0x01
-#define PERM_WRITE	0x02
 struct dir_entry {
-	uint16_t	name_len;
-	char *		name;
-	uint8_t		type;
-	uint8_t		perm;
-	uint64_t	size;
+	uint16_t name_len;
+	char *   name;
+	uint16_t attr_len;
+	char *   attr;
 };
 
 #define MAX_OPENDIRS 5

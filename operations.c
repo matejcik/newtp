@@ -21,27 +21,7 @@
 #include "structs.h"
 #include "tools.h"
 
-/* to be used with recv_* and send_* only. file-related syscalls must handle their errors */
-#define MAYBE_RET(what) { \
-	int HANDLEret = what; \
-	if (HANDLEret <= 0) return HANDLEret; \
-}
-
-/* read as "maybe return, freeing (buf) in the process */
-#define MAYBE_RET_FREEING(buf, what) { \
-	int HANDLEret = what; \
-	if (HANDLEret <= 0) { \
-		free(buf); \
-		return HANDLEret; \
-	} \
-}
-
-/* "return, freeing (buf)" */
-#define RET_FREEING(buf, what) { \
-	int ret = what; \
-	free(buf); \
-	return ret; \
-}
+#define LONGEST_PATH 16384
 
 #define REPLY(s, len) pack_reply_p(response, cmd->request_id, 0, (s), (len)) + (len)
 
@@ -50,76 +30,176 @@
 	if (!h) return REPLY(ERR_BADHANDLE, 0); \
 	if (!h->path) return REPLY(ERR_NOTFOUND, 0);
 
-/***** directory listing functions *****/
 
-int fill_stat (char const * path, struct dir_entry * entry, int writable)
+static int _unpack_succeeded = 1;
+
+int _unpack_or_flag(int unpack_result)
 {
-	/* caller is responsible for filling entry->name
-	and entry->len, they probably know better anyway */
-	struct stat st;
-	int ret;
-
-	ret = stat(path, &st);
-	if (ret == -1) { /* failed to stat */
-		entry->type = ENTRY_BAD;
-	} else {
-		if (S_ISREG(st.st_mode)) entry->type = ENTRY_FILE;
-		else if (S_ISDIR(st.st_mode)) entry->type = ENTRY_DIR;
-		else entry->type = ENTRY_OTHER;
-
-		if (entry->type == ENTRY_FILE) entry->size = st.st_size;
-		else entry->size = 0;
-
-		entry->perm = 0;
-		/* XXX more detailed check for access() failure? */
-		if (!access(path, R_OK | (entry->type == ENTRY_DIR ? X_OK : 0))) entry->perm |= PERM_READ;
-		if (writable && !access(path, W_OK)) entry->perm |= PERM_WRITE;
-	}
-	return ret;
+	_unpack_succeeded = (unpack_result >= 0);
+	return unpack_result;
 }
 
-int fill_entry (char const * directory, int dlen, struct dirent const * dirent, struct dir_entry * entry, int writable)
+#define DIE_OR(x) \
+	_unpack_or_flag(x); \
+	if (!_unpack_succeeded) return REPLY(ERR_BADPACKET, 0);
+
+/***** directory listing functions *****/
+
+static inline int attr_size (uint8_t attr)
 {
-	char * path;
-	int len;
-	assert(entry); assert(dirent);
-	/* entry is pre-allocated, dirent should already be checked for null */
-
-	len = strlen(dirent->d_name);
-	if (entry->name_len < len) {
-		entry->name = xrealloc(entry->name, len + 1); /* entry->name should either be NULL or a malloc'd chunk */
+	switch (attr) {
+		case ATTR_TYPE:   return 1;
+		case ATTR_RIGHTS: return 1;
+		case ATTR_SIZE:   return 8;
+		case ATTR_DEV_ID: return 4;
+		case ATTR_LINKS:  return 4;
+		case ATTR_ATIME:  return 8;
+		case ATTR_MTIME:  return 8;
+		case ATTR_PTYPE:  return 1;
+		case ATTR_PERMS:  return 2;
+		case ATTR_CTIME:  return 8;
+		case ATTR_UID:    return 4;
+		case ATTR_GID:    return 4;
+		default: return 0;
 	}
-	entry->name_len = len; /* overwriting the len info, so if there was a preallocated chunk,
-		we don't know its size anymore and we may be reallocating needlessly. still, it's
-		better than reallocating every time */
-	strncpyz(entry->name, dirent->d_name, len);
+}
 
-	path = xmalloc(dlen + 1 + len + 1);
-	strncpy(path, directory, dlen);
-	path[dlen] = '/';
-	strncpyz(path + dlen + 1, dirent->d_name, len);
+int calculate_attr_len (char const * attr_spec, int len)
+{
+	char attrs[256];
+	int sum = 0;
+
+	for (int i = 0; i < 256; i++) attrs[i] = 0;
+
+	/* clear known attributes */
+	attrs[ATTR_TYPE] = 1;
+	attrs[ATTR_RIGHTS] = 1;
+	attrs[ATTR_SIZE] = 1;
+	attrs[ATTR_DEV_ID] = 1;
+	attrs[ATTR_LINKS] = 1;
+	attrs[ATTR_ATIME] = 1;
+	attrs[ATTR_MTIME] = 1;
+
+	attrs[ATTR_PTYPE] = 1;
+	attrs[ATTR_PERMS] = 1;
+	attrs[ATTR_CTIME] = 1;
+	attrs[ATTR_UID] = 1;
+	attrs[ATTR_GID] = 1;
+
+	for (int i = 0; i < len; i++) {
+		unsigned char a = (unsigned char)attr_spec[i];
+		if(!attrs[a]) return -1;
+		attrs[a] = 0;
+		sum += attr_size(a);
+	}
+
+	return sum;
+}
+
+int fill_stat (char const * path, int writable, char * attributes, char const * attr_spec, int spec_len)
+{
+	/* we assume that attributes have the proper size */
+	struct stat st;
+	int ret;
+	unsigned int value;
+	uint64_t bigvalue;
+
+	ret = stat(path, &st); /* XXX maybe stat optionally */
+
+	if (ret == -1) return -1;
 	
-	fill_stat(path, entry, writable);
+	for (int i = 0; i < spec_len; i++) {
+		switch (*attr_spec++) {
+			case ATTR_TYPE:
+				if (S_ISREG(st.st_mode)) value = TYPE_FILE;
+				else if (S_ISDIR(st.st_mode)) value = TYPE_DIR;
+				else value = TYPE_OTHER;
+				attributes += pack(attributes, "c", (uint8_t)value);
+				break;
 
-	free(path);
+			case ATTR_RIGHTS:
+				value = 0;
+				/* XXX more detailed check for access() failure? */
+				if (!access(path, R_OK | (S_ISDIR(st.st_mode) ? X_OK : 0))) value |= RIGHTS_READ;
+				if (writable && !access(path, W_OK)) value |= RIGHTS_WRITE;
+				attributes += pack(attributes, "c", (uint8_t)value);
+				break;
 
-	return SIZEOF_dir_entry(entry);
+			case ATTR_SIZE:
+				bigvalue = st.st_size;
+				attributes += pack(attributes, "l", bigvalue);
+				break;
+
+			case ATTR_DEV_ID:
+				value = st.st_dev;
+				attributes += pack(attributes, "i", (uint32_t)value);
+				break;
+
+			case ATTR_LINKS:
+				value = st.st_nlink;
+				attributes += pack(attributes, "i", (uint32_t)value);
+				break;
+
+			case ATTR_ATIME:
+				bigvalue = st.st_atim.tv_sec * 1000000 + (st.st_atim.tv_nsec / 1000);
+				attributes += pack(attributes, "l", bigvalue);
+				break;
+
+			case ATTR_MTIME:
+				bigvalue = st.st_mtim.tv_sec * 1000000 + (st.st_mtim.tv_nsec / 1000);
+				attributes += pack(attributes, "l", bigvalue);
+				break;
+
+			case ATTR_CTIME:
+				bigvalue = st.st_ctim.tv_sec * 1000000 + (st.st_ctim.tv_nsec / 1000);
+				attributes += pack(attributes, "l", bigvalue);
+				break;
+
+			case ATTR_PTYPE:
+				value = (st.st_mode & S_IFMT) >> 12;
+				attributes += pack(attributes, "c", (uint8_t)value);
+				break;
+
+			case ATTR_PERMS:
+				value = st.st_mode & (uint32_t)0x00000fff;
+				attributes += pack(attributes, "s", (uint16_t)value);
+				break;
+
+			case ATTR_UID:
+				value = st.st_uid;
+				attributes += pack(attributes, "i", (uint32_t)value);
+				break;
+
+			case ATTR_GID:
+				value = st.st_gid;
+				attributes += pack(attributes, "i", (uint32_t)value);
+				break;
+
+			default:
+				/* attribute was checked in as valid, but we don't know it.
+				 * this is an internal error. TODO report it. */
+				return -1;
+		}
+	}
+	return ret;
 }
 
 /**** actual command implementations ****/
 
 int cmd_ASSIGN (struct command * cmd, char * payload, char * response)
 {
+	logp("CMD_ASSIGN -> %d", cmd->handle);
 	int res = handle_assign(cmd->handle, payload, cmd->length);
 	return REPLY(res, 0);
 }
 
-int list_shares (struct command * cmd, char * response)
+int list_shares (struct command * cmd, char * response, char const * attr_spec, int attr_len)
 {
 	int filled = sizeof(uint16_t);
 	char * buf = response + SIZEOF_reply();
-	int entry_len = 0;
+	char * attrs;
 	int entries = 0;
+	int result = STAT_FINISHED;
 	struct dir_entry entry;
 	struct share * share = NULL;
 	log("listing root");
@@ -127,28 +207,45 @@ int list_shares (struct command * cmd, char * response)
 	/* `buf` is starting at position after the reply packet,
 	 * `filled` is size of payload in use, starts at length of entries counter */
 
+	attrs = xmalloc(attr_len);
+	entry.attr = attrs;
+	entry.attr_len = attr_len;
+
 	while ((share = share_next(share))) {
 		entry.name_len = share->nlen;
 		entry.name = share->name;
-		/* TODO account for non-directory shares (individual files, devices perhaps??) */
-		entry.type = ENTRY_DIR;
-		entry.perm = 0;
-		if (!access(share->path, R_OK | X_OK)) entry.perm |= PERM_READ;
-		if (share->writable && !access(share->path, W_OK)) entry.perm |= PERM_WRITE;
-		entry.size = 0;
 
-		entry_len = pack_dir_entry(buf + filled, &entry);
-		if (filled + entry_len > MAX_LENGTH) {
+		if (fill_stat(share->path, share->writable, attrs, attr_spec, cmd->length) == -1) {
+			if (errno == EACCES) {
+				result = ERR_DENIED;
+				break;
+			} else if (errno == ENAMETOOLONG) {
+				continue; /* ..... what else */
+			} else if (errno == ELOOP || errno == ENOENT || errno == ENOTDIR) {
+				/* should not happen but what do we know */
+				result = ERR_NOTFOUND;
+				break;
+			} else {
+				/* the list of remaining error codes in man stat(2) is
+				 * pretty ominous: EFAULT, ENOMEM, EOVERFLOW */
+				result = ERR_SERVFAIL;
+				break;
+			}
+		}
+
+		pack_dir_entry(buf + filled, &entry);
+		if (filled + SIZEOF_dir_entry(&entry) > MAX_LENGTH) {
 			break;
 		}
-		filled += entry_len;
+		filled += SIZEOF_dir_entry(&entry);
 		++entries;
 	}
-	/* TODO do something about repeated read */
+
+	free(attrs);
 
 	/* write number of entries at start of buf */
-	pack(buf, "s", entries);
-	return REPLY(STAT_FINISHED, filled);
+	pack(buf, "s", (uint16_t)entries);
+	return REPLY(result, filled);
 }
 
 int cmd_REWINDDIR (struct command * cmd, char * payload, char * response)
@@ -173,81 +270,169 @@ int cmd_REWINDDIR (struct command * cmd, char * payload, char * response)
 		return REPLY(err, 0);
 	}
 
-	h->entry.name_len = 0;
-	free(h->entry.name);
-	h->entry.name = NULL;
+	h->entry_name = NULL;
+	h->entry_len = 0;
 
 	return REPLY(STAT_OK, 0);
 }
 
 int cmd_READDIR (struct command * cmd, char * payload, char * response)
 {
+	int entries = 0, res = 0;
+	int attr_len = 0;
+	char * pathbuf;
+	char * nameptr;
+	char * attrs;
+
 	int filled = sizeof(uint16_t);
-	int entries = 0, len = 0;
 	int result = STAT_FINISHED;
 	char * buf = response + SIZEOF_reply();
+
+	/* `buf` is starting at position after the reply packet,
+	 * `filled` is size of payload in use, starts at length of entries counter */
+
+	struct dir_entry entry;
 	struct dirent * dirent;
 	struct handle * h;
+
 	VALIDATE_HANDLE(h);
 	logp("CMD_READDIR %d (%s)", cmd->handle, h->path);
 
-	if (!h->path[0]) return list_shares(cmd, response);
+	attr_len = calculate_attr_len(payload, cmd->length);
+	if (attr_len < 0) {
+		log("invalid attribute string");
+		return REPLY(ERR_BADATTR, 0);
+	}
 
-	/* continues listing on preinitialized dir handle */
+	if (!h->path[0]) return list_shares(cmd, response, payload, attr_len);
+
 	if (!h->dir) {
 		log("invalid continuation");
 		return REPLY(ERR_READDIR, 0);
 	}
 
-	if (h->entry.name) { /* append carried-over entry */
-		filled += pack_dir_entry(buf + filled, &h->entry);
+	/* allocate sufficient attr length */
+	attrs = xmalloc(attr_len);
+	entry.attr = attrs;
+	entry.attr_len = attr_len;
+	/* prepare path buffer */
+	pathbuf = xmalloc(LONGEST_PATH);
+	strncpyz(pathbuf, h->path, h->plen);
+	pathbuf[h->plen] = '/';
+	nameptr = pathbuf + h->plen + 1;
+
+	if (h->entry_name) { /* append carried-over entry */
+		strncpyz(nameptr, h->entry_name, h->entry_len);
+		res = fill_stat(pathbuf, h->writable, attrs, payload, cmd->length);
+		entry.name_len = h->entry_len;
+		entry.name = nameptr;
+		pack_dir_entry(buf + filled, &entry);
+		filled += SIZEOF_dir_entry(&entry);
+		++entries;
+
+		h->entry_name = NULL;
+		h->entry_len = 0;
 	}
 
+	errno = 0;
 	while ((dirent = readdir(h->dir))) {
 		/* skip "." and ".." */
 		if (dirent->d_name[0] == '.')
 			if (dirent->d_name[1] == 0 || (dirent->d_name[1] == '.' && dirent->d_name[2] == 0)) continue;
+
 		/* fill the entry */
-		fill_entry(h->path, h->plen, dirent, &h->entry, h->writable);
-		if (h->entry.type == ENTRY_BAD) continue;
-		len = pack_dir_entry(buf + filled, &h->entry);
+		assert(h->plen + 1 + NAME_MAX + 1 < LONGEST_PATH);
+		entry.name_len = strlen(dirent->d_name);
 		
-		if (filled + len > MAX_LENGTH) {
+		if (filled + SIZEOF_dir_entry(&entry) > MAX_LENGTH) {
+			/* save entry name for resume */
+			h->entry_name = dirent->d_name; /* this is not memory-managed by us */
+			h->entry_len = entry.name_len;
 			result = STAT_CONTINUED;
 			break;
 		}
-		filled += len;
+
+		/* proceed with entry */
+		strncpyz(nameptr, dirent->d_name, entry.name_len);
+		res = fill_stat(pathbuf, h->writable, attrs, payload, cmd->length);
+		if (res == -1) {
+			if (errno == EACCES) {
+				result = ERR_DENIED;
+				break;
+			} else if (errno == ENAMETOOLONG) {
+				continue; /* ..... what else */
+			} else if (errno == ELOOP) {
+				result = ERR_NOTFOUND; /* best possible solution here? */
+				break;
+			} else if (errno == ENOENT || errno == ENOTDIR) {
+				/* should not happen but what do we know */
+				result = ERR_NOTFOUND;
+				break;
+			} else {
+				/* the list of remaining error codes in man stat(2) is
+				 * pretty ominous: EFAULT, ENOMEM, EOVERFLOW */
+				result = ERR_SERVFAIL;
+				break;
+			}
+		}
+		entry.name = nameptr;
+		pack_dir_entry(buf + filled, &entry);
+		filled += SIZEOF_dir_entry(&entry);
 		++entries;
+
+		errno = 0;
 	}
 
+	free(pathbuf);
+	free(attrs);
+
 	if (!dirent) {
-		/* end of listing, do stuff to directory */
+		/* close directory */
 		closedir(h->dir);
 		h->dir = 0;
-		free(h->entry.name);
-		h->entry.name_len = 0;
-		h->entry.name = NULL;
+		h->entry_len = 0;
+		h->entry_name = NULL;
+
+		/* check for errors */
+		if (errno == EBADF) {
+			result = ERR_READDIR;
+		} else if (errno) {
+			result = ERR_FAIL;
+		}
 	}
 
 	logp("sent %d items, %d bytes", entries, filled);
-	pack(buf, "s", entries);
+	pack(buf, "s", (uint16_t)entries);
 	return REPLY(result, filled);
 }
 
 int cmd_STAT (struct command * cmd, char * payload, char * response)
 {
 	struct handle * h;
-	struct dir_entry entry;
-	int len;
+	int attr_len;
 
 	VALIDATE_HANDLE(h);
 	logp("CMD_STAT %d (%s)",  cmd->handle, h->path);
 
-	fill_stat(h->path, &entry, h->writable);
-	entry.name_len = 0;
-	entry.name = NULL;
-	len = pack_dir_entry(response + SIZEOF_reply(), &entry);
-	return REPLY(STAT_OK, len); /* TODO tohle opravdu neni dobre */
+	attr_len = calculate_attr_len(payload, cmd->length);
+	if (attr_len < 0) {
+		log("invalid attribute string");
+		return REPLY(ERR_BADATTR, 0);
+	}
+
+	if (fill_stat(h->path, h->writable, response, payload, cmd->length) == -1) {
+		switch (errno) {
+			case EACCES:       return REPLY(ERR_DENIED, 0);
+			case ELOOP:        return REPLY(ERR_NOTFOUND, 0);
+			case ENAMETOOLONG: return REPLY(ERR_BADPATH, 0); /* name too long heh heh */
+			case ENOENT:       return REPLY(ERR_NOTFOUND, 0);
+			case ENOTDIR:      return REPLY(ERR_NOTFOUND, 0);
+			case EOVERFLOW:    return REPLY(ERR_SERVFAIL, 0);
+			default:           return REPLY(ERR_FAIL, 0);
+		}
+	}
+
+	return REPLY(STAT_OK, attr_len);
 }
 
 int cmd_READ (struct command * cmd, char * payload, char * response)
@@ -258,8 +443,7 @@ int cmd_READ (struct command * cmd, char * payload, char * response)
 	char * buf = response + SIZEOF_reply();
 	struct params_offlen params;
 
-	/* TODO make sure packet actually contains enough data! */
-	unpack_params_offlen(payload, &params);
+	DIE_OR(unpack_params_offlen(payload, cmd->length, &params));
 
 	VALIDATE_HANDLE(h);
 	logp("CMD_READ %d (%s): ofs %llu, len %d", cmd->handle, h->path, (long long unsigned)params.offset, params.length);
@@ -319,7 +503,7 @@ int cmd_WRITE (struct command * cmd, char * payload, char * response)
 	uint64_t offset;
 
 	/* be a good guy and pick parameters first */
-	unpack(payload, "l", &offset);
+	DIE_OR(unpack(payload, cmd->length, "l", &offset));
 	write_length = cmd->length - sizeof(uint64_t);
 
 	/* clear response number */

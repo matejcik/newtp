@@ -8,6 +8,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "commands.h"
@@ -31,28 +32,59 @@ void send_empty_command(int sock, int id, int command, int handle)
 void recv_reply(int sock, struct reply * reply)
 {
 	SAFE(recv_full(sock, inbuf, SIZEOF_reply()));
-	unpack_reply(inbuf, reply);
+	unpack_reply(inbuf, SIZEOF_reply(), reply);
 	if (reply->length) SAFE(recv_full(sock, inbuf + SIZEOF_reply(), reply->length));
 }
+
+#define ATTRIBUTES  "\x01\x06\x10\x02\x13"
+#define ATTR_LEN    strlen(ATTRIBUTES)
+#define ATTR_FORMAT "clcli"
+#define ATTR_LIST_SIZE   (1 + 8 + 1 + 8 + 4)
 
 void print_listing (char * data, int len)
 {
 	struct dir_entry entry;
 	uint16_t items;
 	int pos = 2;
+	uint8_t  type, rights;
+	uint64_t mtime, size;
+	uint32_t uid;
+	unsigned int st_mode;
+	char date[30];
+	time_t time;
+	struct tm tm;
 
-	unpack(data, "s", &items);
+	unpack(data, len, "s", &items);
 
 	while (items && pos < len) {
 		char parms[3] = "---";
-		unpack_dir_entry(data + pos, &entry);
-		if (entry.type == ENTRY_DIR) parms[0] = 'd';
-		else if (entry.type == ENTRY_OTHER) parms[0] = '?';
-		if (entry.perm & PERM_READ) parms[1] = 'r';
-		if (entry.perm & PERM_WRITE) parms[2] = 'w';
-		printf("%.3s %.*s\t\t%llu\n", parms, entry.name_len, entry.name, entry.size);
+		if (unpack_dir_entry(data + pos, len - pos, &entry) == -1) {
+			fprintf(stderr, "malformed entry in directory listing, attempting to skip\n");
+			continue;
+		}
+		assert(entry.attr_len == ATTR_LIST_SIZE);
+		unpack(entry.attr, entry.attr_len, ATTR_FORMAT, &rights, &mtime, &type, &size, &uid);
+
+		st_mode = type << 12;
+		if (S_ISREG(st_mode)) parms[0] = '-';
+		else if (S_ISDIR(st_mode)) parms[0] = 'd';
+		else if (S_ISCHR(st_mode)) parms[0] = 'c';
+		else if (S_ISBLK(st_mode)) parms[0] = 'b';
+		else parms[0] = '?';
+
+		if (rights & RIGHTS_READ) parms[1] = 'r';
+		if (rights & RIGHTS_WRITE) parms[2] = 'w';
+
+		time = (time_t)mtime / 1000000;
+		localtime_r(&time, &tm);
+		strftime(date, 30, "%F %T", &tm);
+
+		printf("%.3s %6d %10llu %s %.*s\n", parms, uid, (unsigned long long)size, date,
+			entry.name_len, entry.name);
+
 		pos += SIZEOF_dir_entry(&entry);
 		free(entry.name);
+		free(entry.attr);
 		items--;
 	}
 	assert(pos <= len);
@@ -84,12 +116,18 @@ void do_list (int sock, char * path)
 	int end = 0;
 
 	do_assign(sock, path, 1);
-
 	send_empty_command(sock, 2, CMD_REWINDDIR, 1);
-	send_empty_command(sock, ++id, CMD_READDIR, 1);
+
+	pack_command_p(outbuf, ++id, 0, CMD_READDIR, 1, ATTR_LEN);
+	strcpy(outbuf + SIZEOF_command(), ATTRIBUTES);
+	SAFE(send_full(sock, outbuf, SIZEOF_command() + ATTR_LEN));
+
+	/* read the REWINDDIR reply packet */
 	recv_reply(sock, &reply);
 	assert(reply.request_id == 2);
 	assert(reply.result == STAT_OK);
+
+	/* start reading entries */
 	do {
 		recv_reply(sock, &reply);
 		assert(reply.request_id == id);
@@ -98,7 +136,10 @@ void do_list (int sock, char * path)
 				end = 1;
 			case STAT_CONTINUED:
 				print_listing(inbuf + SIZEOF_reply(), reply.length);
-				if (!end) send_empty_command(sock, ++id, CMD_READDIR, 1);
+				if (!end) {
+					pack_command_p(outbuf, ++id, 0, CMD_READDIR, 1, ATTR_LEN);
+					SAFE(send_full(sock, outbuf, SIZEOF_command() + ATTR_LEN));
+				}
 				break;
 			default:
 				fprintf(stderr, "listing '%s' failed: %d\n", path, reply.result);
@@ -181,9 +222,10 @@ int main (int argc, char **argv)
 	struct addrinfo hints;
 	struct addrinfo *res;
 	struct intro intro;
+	struct reply reply;
 	char * command, * path, * target;
 	int sock;
-	uint16_t length, version;
+	uint16_t version;
 
 	if (argc < 3) {
 		printf("usage: %s <address> <command> [path]\n", argv[0]);
@@ -211,18 +253,28 @@ int main (int argc, char **argv)
 	inbuf = xmalloc(MAX_LENGTH * 2);
 	outbuf = xmalloc(MAX_LENGTH * 2);
 
-	send_full(sock, outbuf, pack(outbuf, "5Bss", "NewTP", 1, 0));
-	recv_full(sock, inbuf, 9);
+	pack(outbuf, "5Bs", "NewTP", (uint16_t)1);
+	pack_command_p(outbuf + 7, 0xffff, EXT_INIT, INIT_WELCOME, 0, 0);
+	send_full(sock, outbuf, 7 + SIZEOF_command());
+	recv_full(sock, inbuf, 7 + SIZEOF_reply());
 	if (strncmp(inbuf, "NewTP", 5)) {
 		close(sock);
 		fprintf(stderr, "server sent invalid intro string, closing connetion\n");
 		return 3;
 	}
-	unpack(inbuf + 5, "ss", &version, &length);
+	unpack(inbuf + 5, 2, "s", &version);
 	assert(version == 1);
-	assert(length >= 10); // TODO fix unpack!
-	recv_full(sock, inbuf, length);
-	unpack_intro(inbuf, &intro);
+	unpack_reply(inbuf + 7, SIZEOF_reply(), &reply);
+
+	assert(reply.length > 0);
+	recv_full(sock, inbuf, reply.length);
+	if (unpack_intro(inbuf, reply.length, &intro) < 0) {
+		fprintf(stderr, "server intro packet too short\n");
+		close(sock);
+		return 3;
+	}
+	assert(reply.request_id == 0xffff);
+	assert(reply.extension == EXT_INIT && reply.result == R_OK);
 
 	fprintf(stderr, "server version %d, max %d handles, max %d dirs, platform %s\n", version, intro.max_handles, intro.max_opendirs, intro.platform);
 

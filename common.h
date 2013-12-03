@@ -12,7 +12,7 @@ uint64_t ntohll (uint64_t);
 /* binary serialization and de-serialization with sprintf-like
    format specifier */
 int pack (char * const, char const *, ...);
-int unpack (char const * const, char const *, ...);
+int unpack (char const * const, int, char const *, ...);
 
 /* send()/recv() wrappers that don't return until the whole
    buffer is transferred */
@@ -24,12 +24,12 @@ int skip_data (int, int);
 /* network call wrapper that dies on failure */
 #define SAFE(x) { \
 	int HANDLEret = x; \
-	if (HANDLEret == -1) { \
-		errp("in " #x ": %s", strerror(errno)); \
-		exit(1); \
-	} else if (HANDLEret == 0) { \
+	if (HANDLEret == 0 || (HANDLEret == -1 && errno == ECONNRESET)) { \
 		log("connection lost"); \
 		exit(2); \
+	} else if (HANDLEret == -1) { \
+		errp("in " #x ": %s", strerror(errno)); \
+		exit(1); \
 	} \
 }
 

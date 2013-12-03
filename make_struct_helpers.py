@@ -46,7 +46,7 @@ def h_defs (name, format_str, fields):
 #define SIZEOF_{name}(s) ({len_list})
 int pack_{name} (char * const buf, struct {name} const * s);
 int pack_{name}_p (char * const buf, {field_types});
-int unpack_{name} (char const * const buf, struct {name} * s);
+int unpack_{name} (char const * const buf, int available, struct {name} * s);
 """.format(**locals())
 
 def c_functions (name, fields):
@@ -71,14 +71,14 @@ int pack_{name}_p (char * const buf, {field_list})
     return PACK_size;
 }}
 
-int unpack_{name} (char const * const buf, struct {name} * s)
+int unpack_{name} (char const * const buf, int available, struct {name} * s)
 {{
     int size;
 
     assert(s);
     assert(buf);
-    size = unpack(buf, FORMAT_{name}, {field_prefs});
-    assert(size == SIZEOF_{name}(s));
+    size = unpack(buf, available, FORMAT_{name}, {field_prefs});
+    assert(size == SIZEOF_{name}(s) || size < 0);
     return size;
 }}
 """.format(**locals())
