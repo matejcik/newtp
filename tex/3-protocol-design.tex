@@ -134,10 +134,10 @@ of~requests.
 
 \subsection{Low latency}
 
-Given that the protocol is using TLS on top of TCP, establishing a connection takes a nontrivial amount of
-time. This is even more true on high-latency networks like GPRS/EDGE. We want to make operation on such
-networks as painless as possible. That means good support for interleaving of operations on a single
-connection, and reducing size of protocol messages.
+Given that the protocol is using TLS, establishing a connection takes a nontrivial amount of time. This is
+even more true on high-latency networks like GPRS/EDGE. We want to make operation on such networks as painless
+as possible. That means good support for interleaving of operations on a single connection, and reducing size
+of protocol messages.
 
 The choice of a binary protocol results in smaller messages. The short maximum packet length means that in the
 ideal case, after a new operation is inserted into the outgoing stream, the client downloads at most 64 kB of
@@ -151,11 +151,13 @@ This sort of interleaving rules out long operations, which is helpful even on fa
 is easy to implement a responsive filesystem emulation on top of NewTP.
 
 To make the amount of transfered data even smaller, implementers may choose to enable TLS compression. Be
-advised, though, that encryption and compression interact in nontrivial ways TODO
+advised, though, that encryption and compression interact in nontrivial ways. Size of data transfers provides
+information about compression ratio of data being transfered, which may under some circumstances enable
+a successful attack on the encryption. The paper~\cite{kelsey2002} examines the issue in detail.
 
-Transfer overhead works out to 24 bytes (TODO calculate based on actual packet!!!) per 64 kB when using
-maximum possible packet size. To put this in perspective, when downloading 2 GB of data at top speed, protocol
-overhead will consume additional 786 kB.  This is perfectly acceptable.
+Transfer overhead works out to 24 bytes per 64 kB when using maximum possible packet size. To put this in
+perspective, when downloading 2 GB of data at top speed, protocol overhead will consume additional 786 kB.
+This is perfectly acceptable.
 
 %
 
@@ -195,8 +197,7 @@ recommend using a different protocol for scenarios that require it.
 In this version of the protocol, clients are fully responsible for managing their caches.  Depending on the
 application, a client should periodically check freshness of relevant data.  For filesystem emulation, clients
 should check cache freshness every time a file is opened, and perform server write when the file is closed.
-In addition, it is advisable to refresh directory cache at reasonable intervals, e.g., once a minute.  (XXX
-really?)
+In addition, it is advisable to refresh directory cache at reasonable intervals, e.g., once a minute.
 
 We considered adding a mechanism through which the server could request cache invalidation. However, since all
 traffic is initiated by the client, server has no means to send unsolicited updates. Adding this would
@@ -243,11 +244,10 @@ defined as follows. All numeric fields are stored in network byte order (big-end
 	\ttitem{uint64} Unsigned 64-bit integer
 	\ttitem{time\_t} Unsigned 64-bit integer, representing time in microseconds since the start of UNIX
 		epoch (January 1, 1970, 0:00:00 UTC)
-	\ttitem{string} Byte sequence of arbitrary length, representing a Unicode string encoded in UTF-8.
-		The field is not null-terminated. Length is not part of the {\tt string} field, a separate
-		{\tt uint16} length information must precede it.
-	\ttitem{data} Byte sequence of arbitrary length, representing arbitrary data. Same as {\tt string},
-		length must be specified separately.
+	\ttitem{data} Byte sequence of arbitrary length. Information about its length will be provided
+		separately -- either in a different field, or obtained by a~calculation.
+	\ttitem{string} Unsigned 16-bit length field, followed by a byte sequence of that length. Essentially,
+		{\tt uint16} followed by {\tt data}.
 \end{description}
 
 %
@@ -340,9 +340,9 @@ Extensions can also provide new attribute codes.
 \def\tline#1#2#3{
 {\ttfamily #1} & {\ttfamily #2} & {\ttfamily #3}
 }
-\begin{tabular}{|lllcp{6cm}|}
+\begin{tabular}{|lllcp{7.7cm}|}
 	\hline
-	Code & Name & Type & Writable & Value \\
+	Code & Name & Type & W & Value \\
 	\hline
 	\tline{0x00}{type}{byte} & No &
 		Directory entry type: \newline
@@ -358,35 +358,32 @@ Extensions can also provide new attribute codes.
 		{\tt 0x03} -- Read and write permission
 		\\
 	\tline{0x03}{size}{uint64} & No & File size in bytes \\
-	\tline{0x04}{device\_id}{uint32} & No &
-		Arbitrary ID of logical device on which this entry resides.
-		Entries within the same filesystem will have the same {\tt device\_id}
+	\tline{0x04}{dev\_id}{uint32} & No &
+		Arbitrary ID of the filesystem tree in which this entry resides.
+		Entries within the same filesystem will have the same {\tt dev\_id}
 		and entries on different filesystmes will differ. No other guarantees
 		are provided about the value.
 		\\
 	\tline{0x05}{links}{uint32} & No & Number of hard links to this entry \\
-	\tline{0x06}{time\_access}{time\_t} & Yes & Last accessed time \\
-	\tline{0x07}{time\_modified}{time\_t} & Yes & Last modification time \\
+	\tline{0x06}{atime}{time\_t} & Yes & Last access time \\
+	\tline{0x07}{mtime}{time\_t} & Yes & Last modification time \\
 
 	\hline
 	\multicolumn{5}{|c|}{\textit{POSIX-specific attributes}} \\
 	\hline
 
-	\tline{0x10}{posix\_mode}{uint32} & No &
-		File type and permissions as expressed in the {\tt st\_mode} field
-		of {\tt struct stat}.\newline
-		TODO split type and permissions into separate fields?
-		\\
-	\tline{0x11}{time\_ctime}{time\_t} & Yes & POSIX {\tt ctime} \\
-	\tline{0x12}{uid}{uint32} & Yes & User ID of owner \\
-	\tline{0x13}{gid}{uint32} & Yes & Group ID of owner \\
+	\tline{0x10}{ptype}{byte} & No & File type TODO \\
+	\tline{0x11}{perms}{uint16} & Yes & File permission bits \\
+	\tline{0x12}{ctime}{time\_t} & Yes & POSIX {\tt ctime} \\
+	\tline{0x13}{uid}{uint32} & Yes & User ID of owner \\
+	\tline{0x14}{gid}{uint32} & Yes & Group ID of owner \\
 
 	\hline
 	\multicolumn{5}{|c|}{\textit{Windows-specific attributes}} \\
 	\hline
 
-	\tline{0x20}{attributes}{uint32} & Yes & Windows file attributes \\
-	\tline{0x21}{time\_created}{time\_t} & Yes & Entry creation time \\
+	\tline{0x20}{attrib}{uint32} & Yes & Windows file attributes \\
+	\tline{0x21}{cr\_time}{time\_t} & Yes & Entry creation time \\
 
 	\hline
 \end{tabular}
@@ -398,6 +395,9 @@ Extensions can also provide new attribute codes.
 
 %
 
+%%%
+\def\pkfield#1#2#3{ {\ttfamily #1} & {\ttfamily #2} & #3 \\ }
+
 \subsection{Extension mechanism}
 \label{ssec:extensions}
 
@@ -405,13 +405,18 @@ At session intialization, server sends a list of available extensions. Each exte
 which must be unique, and an extension code, which can be dynamically assigned by the server. That means that
 the same extension can have different codes on different servers, or even between one session and another.
 
-Session code {\tt 0x00} is reserved for core protocol commands and must not be used in the extension list.
-Session codes {\tt 0x01}--{\tt 0x30} are reserved for standard extensions. Standard extensions will be
-mentioned in the extension list, but their code is fixed and guaranteed to be the same on all implementations.
+Extension code {\tt 0x00} is reserved for core protocol commands. Extension code~{\tt 0xFF} is reserved for
+session initialization and SASL authentication messages. Neither can be used in the extension list.
+Extension codes {\tt 0x01}--{\tt 0x30} are reserved for standard extensions. Standard extensions will be
+mentioned in~the~extension list, but their code is fixed and guaranteed to be the same on all implementations.
 Server must not allocate extension codes in this range.
 
 \begin{samepage}
 Server sends the extension list as a sequence of fields in the following format:
+\begin{tabular}{lll}
+	\pkfield{byte}{extension\_code}{Extension code}
+	\pkfield{string}{extension\_name}{ASCII-encoded extension name}
+\end{tabular}
 \begin{description}[parsep=1pt]
 	\ttitem{byte extension\_code} \hfill \\
 		Extension code

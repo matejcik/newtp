@@ -93,17 +93,16 @@ the binary messages to understandable text.
 
 \subsubsection{Self-describing data}
 
-A data format can be considered self-describing if it carries enough information to reconstruct an abstract
-representation of the data without pre-existing knowledge of its structure. A protocol designer might use this
-property to describe protocol messages in an abstract notation, such as ASN.1~\cite{asn-basic}, instead of
-specifying details of on-the-wire encoding. Implementers can then use a software library that converts data
-between an abstract representation and a self-describing format, itself either textual or binary. The
-resulting messages might not be human-readable, but developers can use tools that are not specific to their
-particular protocol.
+A data format can be considered self-describing if it carries enough information to reconstruct the data
+without pre-existing knowledge of its structure. A protocol designer might use this property to describe
+protocol messages in an abstract notation, such as ASN.1~\cite{asn-basic}, instead of specifying details of
+on-the-wire encoding. Implementers can then use a software library that converts data between an abstract
+representation and a self-describing format, itself either textual or binary.
 
-The advantage of this approach is that it simplifies both protocol specifications and implementations by
+One advantage of this approach is that it simplifies both protocol specifications and implementations by
 providing a sort of ``interface'' that hides the low-level details. Obviously, this comes at the cost of
-control over these details.
+control over these details. Another advantage is that it is possible to use protocol-agnostic tools to inspect
+and debug the communication.
 
 In terms of efficiency, a binary self-describing format is probably better than a text-based protocol, but
 still worse than a pure binary one, both in size and processing time. This is due to the fact that the
@@ -267,8 +266,9 @@ Apart from contents of files and directories, the filesystem stores metadata abo
 creation date, last modification date, filesystem attributes, ownership and access rights, link count etc.
 Although it is not essential, a full-featured protocol will expose operations to query and modify this kind of
 metadata. It is also very useful to send this information along with directory listing -- querying each entry
-in a directory with hundreds or thousands of files would be woefully inefficient. On the other hand, it might
-be useful to specify what kind of metadata to include in the listing.
+in a directory with hundreds or thousands of files would be woefully inefficient. On the other hand, sending
+the full set of metadata would make the listing significantly larger. To avoid that, clients might specify
+what kind of metadata to include in the listing.
 
 Filesystem metadata is obviously different on different filesystems and different operating systems. The
 protocol can provide a common subset, a union set with missing fields, or platform-specific functions.
