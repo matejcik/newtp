@@ -16,8 +16,8 @@ uint64_t ntohll (uint64_t);
 int pack (char * const, char const *, ...);
 int unpack (char const * const, int, char const *, ...);
 
-void newtp_gnutls_init (int socket, int flag)
-void newtp_gnutls_disconnect (int bye)
+void newtp_gnutls_init (int socket, int flag);
+void newtp_gnutls_disconnect (int bye);
 
 /* send()/recv() wrappers that don't return until the whole
    buffer is transferred */

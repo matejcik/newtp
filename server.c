@@ -67,15 +67,15 @@ void sighandler (int signal)
 		len = cmd_##x(&cmd, inbuf, outbuf); \
 		break;
 
-void do_work (int sock)
+void do_work ()
 {
 	struct command cmd;
 	int len;
 
 	while (1) {
-		SAFE(recv_full(sock, inbuf, SIZEOF_command()));
+		safe_recv_full(inbuf, SIZEOF_command());
 		unpack_command(inbuf, SIZEOF_command(), &cmd);
-		if (cmd.length) SAFE(recv_full(sock, inbuf, cmd.length));
+		if (cmd.length) safe_recv_full(inbuf, cmd.length);
 
 		logp("received command: request_id 0x%04x, ext 0x%02x, cmd 0x%02x, length %d",
 			cmd.request_id, cmd.extension, cmd.command, cmd.length);
@@ -106,22 +106,22 @@ void do_work (int sock)
 		}
 
 		if (len > 0) {
-			SAFE(send_full(sock, outbuf, len));
+			safe_send_full(outbuf, len);
 		} else {
 			len = pack_reply_p(outbuf, cmd.request_id, 0, ERR_SERVFAIL, 0);
-			SAFE(send_full(sock, outbuf, len));
+			safe_send_full(outbuf, len);
 		}
 	}
 }
 
-void do_session_init(int sock)
+void do_session_init()
 {
 	uint16_t length, version;
 	struct intro intro;
 	struct command cmd;
 
 	/* wait for client intro */
-	SAFE(recv_full(sock, inbuf, 7 + SIZEOF_command()));
+	safe_recv_full(inbuf, 7 + SIZEOF_command());
 	/* client intro should be "NewTP" - length - version */
 	if (strncmp("NewTP", inbuf, 5)) {
 		err("invalid client intro string");
@@ -136,7 +136,7 @@ void do_session_init(int sock)
 		err("invalid intro packet");
 		exit(1);
 	}
-	if (cmd.length > 0) skip_data(sock, cmd.length);
+	if (cmd.length > 0) safe_skip_data(cmd.length);
 
 	/* do not check version because we can't do anything with it, this is v1 */
 
@@ -154,21 +154,19 @@ void do_session_init(int sock)
 	length += pack_intro(outbuf + length, &intro);
 	assert(length == 7 + SIZEOF_reply() + SIZEOF_intro(&intro));
 
-	SAFE(send_full(sock, outbuf, length));
+	safe_send_full(outbuf, length);
 
 	log("session initialized");
 }
 
-void do_sasl_auth (int sock)
+void do_sasl_auth ()
 {
 	/* do nothing now */
 }
 
 void fork_client (int client)
 {
-	int pid, ret;
-	gnutls_session_t session;
-	gnutls_anon_server_credentials_t cred;
+	int pid;
 	CHECK(pid, fork(), return);
 
 	if (pid > 0) return;

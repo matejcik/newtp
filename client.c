@@ -11,6 +11,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <gnutls/gnutls.h>
+
 #include "commands.h"
 #include "common.h"
 #include "log.h"
@@ -23,17 +25,17 @@
 char * inbuf;
 char * outbuf;
 
-void send_empty_command(int sock, int id, int command, int handle)
+void send_empty_command(int id, int command, int handle)
 {
 	pack_command_p(outbuf, id, 0, command, handle, 0);
-	SAFE(send_full(sock, outbuf, SIZEOF_command()));
+	safe_send_full(outbuf, SIZEOF_command());
 }
 
-void recv_reply(int sock, struct reply * reply)
+void recv_reply(struct reply * reply)
 {
-	SAFE(recv_full(sock, inbuf, SIZEOF_reply()));
+	safe_recv_full(inbuf, SIZEOF_reply());
 	unpack_reply(inbuf, SIZEOF_reply(), reply);
-	if (reply->length) SAFE(recv_full(sock, inbuf + SIZEOF_reply(), reply->length));
+	if (reply->length) safe_recv_full(inbuf + SIZEOF_reply(), reply->length);
 }
 
 #define ATTRIBUTES  "\x01\x06\x10\x02\x13"
@@ -90,18 +92,18 @@ void print_listing (char * data, int len)
 	assert(pos <= len);
 }
 
-void do_assign (int sock, char * path, int handle)
+void do_assign (char * path, int handle)
 {
 	struct reply reply;
 	int len = strlen(path);
 
 	pack_command_p(inbuf, 1, 0, CMD_ASSIGN, handle, len);
 	strncpy(inbuf + SIZEOF_command(), path, len);
-	SAFE(send_full(sock, inbuf, SIZEOF_command() + len));
+	safe_send_full(inbuf, SIZEOF_command() + len);
 
-	recv_reply(sock, &reply);
+	recv_reply(&reply);
 	assert(reply.request_id == 1);
-	if (reply.length > 0) SAFE(skip_data(sock, reply.length));
+	if (reply.length > 0) safe_skip_data(reply.length);
 
 	if (reply.result != STAT_OK) {
 		fprintf(stderr, "failed to assign handle\n");
@@ -109,27 +111,27 @@ void do_assign (int sock, char * path, int handle)
 	}
 }
 
-void do_list (int sock, char * path)
+void do_list (char * path)
 {
 	struct reply reply;
 	int id = 2;
 	int end = 0;
 
-	do_assign(sock, path, 1);
-	send_empty_command(sock, 2, CMD_REWINDDIR, 1);
+	do_assign(path, 1);
+	send_empty_command(2, CMD_REWINDDIR, 1);
 
 	pack_command_p(outbuf, ++id, 0, CMD_READDIR, 1, ATTR_LEN);
 	strcpy(outbuf + SIZEOF_command(), ATTRIBUTES);
-	SAFE(send_full(sock, outbuf, SIZEOF_command() + ATTR_LEN));
+	safe_send_full(outbuf, SIZEOF_command() + ATTR_LEN);
 
 	/* read the REWINDDIR reply packet */
-	recv_reply(sock, &reply);
+	recv_reply(&reply);
 	assert(reply.request_id == 2);
 	assert(reply.result == STAT_OK);
 
 	/* start reading entries */
 	do {
-		recv_reply(sock, &reply);
+		recv_reply(&reply);
 		assert(reply.request_id == id);
 		switch (reply.result) {
 			case STAT_FINISHED:
@@ -138,7 +140,7 @@ void do_list (int sock, char * path)
 				print_listing(inbuf + SIZEOF_reply(), reply.length);
 				if (!end) {
 					pack_command_p(outbuf, ++id, 0, CMD_READDIR, 1, ATTR_LEN);
-					SAFE(send_full(sock, outbuf, SIZEOF_command() + ATTR_LEN));
+					safe_send_full(outbuf, SIZEOF_command() + ATTR_LEN);
 				}
 				break;
 			default:
@@ -148,7 +150,7 @@ void do_list (int sock, char * path)
 	} while (!end);
 }
 
-void do_get (int sock, char * path, char * target, int overwrite)
+void do_get (char * path, char * target, int overwrite)
 {
 	struct reply reply;
 	char * buf = outbuf;
@@ -157,7 +159,7 @@ void do_get (int sock, char * path, char * target, int overwrite)
 	int fd;
 	const int len = MAX_LENGTH;
 
-	do_assign(sock, path, 1);
+	do_assign(path, 1);
 
 	/* TODO ensure that the file exists and is readable on server side
 	 before creating the local file */
@@ -176,10 +178,10 @@ void do_get (int sock, char * path, char * target, int overwrite)
 		buf += pack_params_offlen_p(buf, ofs, len);
 		ofs += len;
 	}
-	SAFE(send_full(sock, outbuf, buf - outbuf));
+	safe_send_full(outbuf, buf - outbuf);
 
 	while (1) {
-		recv_reply(sock, &reply);
+		recv_reply(&reply);
 		assert(reply.request_id > rid);
 		rid = reply.request_id;
 		if (reply.result != STAT_OK) {
@@ -208,12 +210,12 @@ void do_get (int sock, char * path, char * target, int overwrite)
 		buf = outbuf;
 		buf += pack_command_p(buf, id++, 0, CMD_READ, 1, SIZEOF_params_offlen());
 		buf += pack_params_offlen_p(buf, ofs, len);
-		SAFE(send_full(sock, outbuf, buf - outbuf));
+		safe_send_full(outbuf, buf - outbuf);
 		ofs += len;
 	}
 }
 
-void do_put (int sock, char * local, char * remote)
+void do_put (char * local, char * remote)
 {
 }
 
@@ -253,13 +255,15 @@ int main (int argc, char **argv)
 	inbuf = xmalloc(MAX_LENGTH * 2);
 	outbuf = xmalloc(MAX_LENGTH * 2);
 
+	newtp_gnutls_init(sock, GNUTLS_CLIENT);
+
 	/* perform protocol intro */
 	pack(outbuf, "5Bs", "NewTP", (uint16_t)1);
 	pack_command_p(outbuf + 7, 0xffff, EXT_INIT, INIT_WELCOME, 0, 0);
-	send_full(sock, outbuf, 7 + SIZEOF_command());
-	recv_full(sock, inbuf, 7 + SIZEOF_reply());
+	safe_send_full(outbuf, 7 + SIZEOF_command());
+	safe_recv_full(inbuf, 7 + SIZEOF_reply());
 	if (strncmp(inbuf, "NewTP", 5)) {
-		close(sock);
+		newtp_gnutls_disconnect(1);
 		fprintf(stderr, "server sent invalid intro string, closing connetion\n");
 		return 3;
 	}
@@ -268,10 +272,10 @@ int main (int argc, char **argv)
 	unpack_reply(inbuf + 7, SIZEOF_reply(), &reply);
 
 	assert(reply.length > 0);
-	recv_full(sock, inbuf, reply.length);
+	safe_recv_full(inbuf, reply.length);
 	if (unpack_intro(inbuf, reply.length, &intro) < 0) {
 		fprintf(stderr, "server intro packet too short\n");
-		close(sock);
+		newtp_gnutls_disconnect(1);
 		return 3;
 	}
 	assert(reply.request_id == 0xffff);
@@ -283,26 +287,26 @@ int main (int argc, char **argv)
 	/*** perform actual commands ***/
 
 	if (!strcmp("list", command)) {
-		do_list(sock, path);
+		do_list(path);
 	} else if (!strcmp("get", command)) {
 		char * c = path;
 		target = path;
 		while (*c++) if (*c == '/') target = c + 1;
-		do_get(sock, path, target, 0);
+		do_get(path, target, 0);
 	} else if (!strcmp("put", command)) {
 		if (argc < 5) {
 			printf("usage: %s %s put <file> [file...] <path>\n", argv[0], argv[1]);
 			return 1;
 		}
 		for (int i = 3; i < argc - 1; i++) {
-			do_put(sock, argv[i], argv[argc-1]);
+			do_put(argv[i], argv[argc-1]);
 		}
 	} else {
 		fprintf(stderr, "unknown command: %s\n", command);
 		exit(1);
 	}
 
-	close(sock);
+	newtp_gnutls_disconnect(1);
 
 	return 0;
 }
