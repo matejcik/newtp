@@ -11,6 +11,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <gnutls/gnutls.h>
+
 #include "commands.h"
 #include "common.h"
 #include "log.h"
@@ -164,7 +166,9 @@ void do_sasl_auth (int sock)
 
 void fork_client (int client)
 {
-	int pid;
+	int pid, ret;
+	gnutls_session_t session;
+	gnutls_anon_server_credentials_t cred;
 	CHECK(pid, fork(), return);
 
 	if (pid > 0) return;
@@ -175,12 +179,17 @@ void fork_client (int client)
 	close_server_sockets();
 	log("connection received");
 
+	/* initialize TLS */
+	newtp_gnutls_init (client, GNUTLS_SERVER);
+
 	inbuf = xmalloc(MAX_LENGTH * 2);
 	outbuf = xmalloc(MAX_LENGTH * 2); /* needed? */
 
-	do_session_init(childsock);
-	do_sasl_auth(childsock);
-	do_work(childsock);
+	do_session_init();
+	do_sasl_auth();
+	do_work();
+
+	newtp_gnutls_disconnect(1);
 	exit(0);
 }
 
