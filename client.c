@@ -253,6 +253,7 @@ int main (int argc, char **argv)
 	inbuf = xmalloc(MAX_LENGTH * 2);
 	outbuf = xmalloc(MAX_LENGTH * 2);
 
+	/* perform protocol intro */
 	pack(outbuf, "5Bs", "NewTP", (uint16_t)1);
 	pack_command_p(outbuf + 7, 0xffff, EXT_INIT, INIT_WELCOME, 0, 0);
 	send_full(sock, outbuf, 7 + SIZEOF_command());
@@ -277,6 +278,9 @@ int main (int argc, char **argv)
 	assert(reply.extension == EXT_INIT && reply.result == R_OK);
 
 	fprintf(stderr, "server version %d, max %d handles, max %d dirs, platform %s\n", version, intro.max_handles, intro.max_opendirs, intro.platform);
+
+
+	/*** perform actual commands ***/
 
 	if (!strcmp("list", command)) {
 		do_list(sock, path);
