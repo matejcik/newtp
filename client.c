@@ -282,6 +282,8 @@ int main (int argc, char **argv)
 	assert(reply.extension == EXT_INIT && reply.result == R_OK);
 
 	fprintf(stderr, "server version %d, max %d handles, max %d dirs, platform %s\n", version, intro.max_handles, intro.max_opendirs, intro.platform);
+	free(intro.platform);
+	free(intro.authstr);
 
 
 	/*** perform actual commands ***/
