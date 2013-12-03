@@ -94,12 +94,14 @@ features, although not strictly required, are strongly desirable.
 \subsection{Simplicity}
 
 Simplicity means different things to different people and in different contexts. In case of NewTP, we want to
-ensure that the protocol is simple to implement and use properly. The core feature set is small and
-variability of commands is limited. Individual commands mostly correspond to how the operating system works
-with filesystems, so each command can usually be implemented with one or two system calls on the server. On
-the client, it is easy to replicate common file operations with calls over the network. In difficult cases, we
-opt for less complex solutions that work well for our supported scenarios, even if they do not perfectly cover
-corner cases.
+ensure that the protocol is simple to implement and use properly -- or, to put it differently, make it more
+difficult to write a buggy implementation than a correct one. To this end, we designed the protocol with
+a highly regular communication scheme. Different values of message arguments should not lead to unexpected
+behaviors, and errors are easy to detect.  The core feature set is small and variability of commands is
+limited. Individual commands mostly correspond to how the operating system works with filesystems, so each
+command can usually be implemented with one or two system calls on the server. On the client, it is easy to
+replicate common file operations with calls over the network. In difficult cases, we opt for less complex
+solutions that work well for our supported scenarios, even if they do not perfectly cover corner cases.
 
 Simplicity is also the reason for choosing TCP as the transport layer. This way, the protocol does not need to
 concern itself with lost or out-of-order packets.
@@ -200,10 +202,10 @@ should check cache freshness every time a file is opened, and perform server wri
 In addition, it is advisable to refresh directory cache at reasonable intervals, e.g., once a minute.
 
 We considered adding a mechanism through which the server could request cache invalidation. However, since all
-traffic is initiated by the client, server has no means to send unsolicited updates. Adding this would
-complicate client implementations and we did not want that. Alternately, clients could register watched items
-and then use a single command to poll their status periodically. We did not make this a part of the core
-protocol, but a future revision might introduce an extension with this functionality.
+traffic is initiated by the client, server has no means to send unsolicited updates. In our communication
+scheme, the client would have to send an update request and the server would only respond to this request when
+updates became available. For this to work properly with interleaving, the server must be allowed to reorder
+client request, which is a topic for a future revision.
 
 %
 
@@ -232,7 +234,8 @@ This section describes various technical details pertaining to design and implem
 \subsection{Packet format notation}
 
 Packets are described in a C-style format, data type preceding field name. Various packets use data types
-defined as follows. All numeric fields are stored in network byte order (big-endian).
+defined as follows. All numeric fields are stored in network byte order (big-endian). String fields are not
+null-terminated and can include null bytes.
 
 \def\ttitem#1{ \item[\ttfamily #1] }
 \begin{description}[leftmargin=1.7cm,style=sameline]
@@ -245,7 +248,8 @@ defined as follows. All numeric fields are stored in network byte order (big-end
 	\ttitem{time\_t} Unsigned 64-bit integer, representing time in microseconds since the start of UNIX
 		epoch (January 1, 1970, 0:00:00 UTC)
 	\ttitem{data} Byte sequence of arbitrary length. Information about its length will be provided
-		separately -- either in a different field, or obtained by a~calculation.
+		separately -- either in a different field, or obtained by a~calculation. Where unspecified, it
+		is assumed that the {\tt data} field covers all remaining data in the packet.
 	\ttitem{string} Unsigned 16-bit length field, followed by a byte sequence of that length. Essentially,
 		{\tt uint16} followed by {\tt data}.
 \end{description}
@@ -254,8 +258,8 @@ defined as follows. All numeric fields are stored in network byte order (big-end
 
 \subsection{Path string encoding}
 
-All filenames and path strings, expressed as {\tt string} fields in packet descriptions, must be encoded as
-UTF-8. Clients and servers must perform transcoding from system-native filename encoding to UTF-8 and back.
+All filenames and path strings must be encoded as UTF-8. Clients and servers must perform transcoding from
+system-native filename encoding to UTF-8 and back.
 
 To support filenames that are undecodable in the system encoding, NewTP uses a roundtrip-safe encoding scheme
 described in PEP~383~\cite{pep383}. In this scheme, an undecodable byte {\tt 0x80}--{\tt 0xFF} is converted to
@@ -283,9 +287,12 @@ multiple byte sequences map to the same Unicode codepoint. These are not support
 \subsection{Path strings and file handles}
 \label{ssec:paths}
 
-Paths and files in NewTP are referred to through file handles. The {\tt ASSIGN} command assigns a path string
-to a file handle, and subsequent commands use the file handle as an argument, instead of the path string. The
-purpose of this is to limit repeating of the potentially long path string.
+Paths and files in NewTP are referred to through identifiers called {\it file handles}. The purpose of this is
+to reduce transfer sizes and simplify packet structure. In order to eliminate a round-trip on file handle
+assignment, clients choose their own file handles.\footnote{This is a common technique for reducing latency;
+for instance, the X Window protocol does the same with resource identifiers.~\cite{xwindow}} The {\tt ASSIGN}
+command specifies a file handle and a path string. This relation is stored by the server, and subsequent
+commands use the file handle to represent this path string.
 
 Path strings are absolute and use the slash character (`{\tt /}') to separate path elements. Empty path
 elements, path elements `{\tt .}' and `{\tt ..}' must not be part of the path. Directory listing returns names
@@ -298,10 +305,10 @@ directory and is invalid.
 File handle ID is specified as a 16-bit unsigned integer. That means that at most 65536 handles are available
 to the client. Servers should provide as many handles as they can. At session initiation, server informs the
 client about how many handles are available; these must be consecutive handles numbered 0--$({\tt max\_handles}
-- 1)$. A conforming server must provide at least 16 handles. When the session start, every available handle is
+- 1)$. A conforming server must provide at least 16 handles. When the session starts, every available handle is
 set to empty path.
 
-File handles do not necessarily refer to valid filesystem objects -- for example, to create a new directory,
+File handles do not necessarily refer to valid filesystem objects. For example, to create a new directory,
 the client assigns the new path to a file handle and then issues a {\tt MAKEDIR} command on that handle.
 A file handle does not become invalid when the object it is pointing to is removed, and it does not follow
 externally moved files.\footnote{Although as a side-effect, the {\tt RENAME} command updates the file handle
@@ -322,13 +329,13 @@ modification time, access rights etc. Each item is assigned a name, data type an
 attributes are listed in table~\ref{table:attributes}.
 
 When requesting directory listing, the client specifies a sequence of codes, and specified metadata is
-returned as part of each entry in the listing. Requested attributes from {\tt STAT} are specified in the same
+returned as part of each entry in the listing. Requested attributes for {\tt STAT} are specified in the same
 way. Filesystem-like clients will request the full list, clients that want to save bandwidth can only ask for
 attributes they are interested in.  Note that the full list is relatively long: three time fields and a size
 field add up to 32 bytes, which is often longer than the entry name.
 
 The {\tt SETATTR} call takes an attribute code and its new value. Only some attributes can be set, those are
-marked as ``writable'' in the table. However, the fact that an attribute is writable does not mean that the
+marked as ``writable'' in the table. The fact that an attribute is writable does not necessarily mean that the
 client has permission to set it.
 
 Extended attributes and ACLs are not supported in the core protocol, but support can be added via extensions.
@@ -340,9 +347,9 @@ Extensions can also provide new attribute codes.
 \def\tline#1#2#3{
 {\ttfamily #1} & {\ttfamily #2} & {\ttfamily #3}
 }
-\begin{tabular}{|lllcp{7.7cm}|}
+\begin{tabular}{lllcp{6cm}}
 	\hline
-	Code & Name & Type & W & Value \\
+	Code & Name & Type & Writable & Value \\
 	\hline
 	\tline{0x00}{type}{byte} & No &
 		Directory entry type: \newline
@@ -352,43 +359,58 @@ Extensions can also provide new attribute codes.
 		{\tt 0xFF} -- Error entry
 		\\
 	\tline{0x01}{rights}{byte} & No &
-		Bit mask of simplified access rights for~the current user account:\newline
+		Simplified access rights:\newline
 		{\tt 0x01} -- Read permission \newline
 		{\tt 0x02} -- Write permission \newline
 		{\tt 0x03} -- Read and write permission
 		\\
-	\tline{0x03}{size}{uint64} & No & File size in bytes \\
-	\tline{0x04}{dev\_id}{uint32} & No &
-		Arbitrary ID of the filesystem tree in which this entry resides.
-		Entries within the same filesystem will have the same {\tt dev\_id}
-		and entries on different filesystmes will differ. No other guarantees
-		are provided about the value.
+	\tline{0x02}{size}{uint64} & No & File size in bytes \\
+	\tline{0x03}{device\_id}{uint32} & No & ID of the filesystem tree\footnotemark[1] \\
+	\tline{0x04}{links}{uint32} & No & Number of hard links to this entry \\
+	\tline{0x05}{atime}{time\_t} & Yes & Last access time \\
+	\tline{0x06}{mtime}{time\_t} & Yes & Last modification time \\
+
+	\hline
+	\multicolumn{5}{c}{\textit{POSIX-specific attributes}} \\
+	\hline
+
+	\tline{0x10}{posix\_type}{byte} & No &
+		POSIX file type:\footnotemark[2] \newline
+		{\tt 0x01} -- Named pipe (FIFO) \newline
+		{\tt 0x02} -- Character device \newline
+		{\tt 0x04} -- Directory \newline
+		{\tt 0x06} -- Block device \newline
+		{\tt 0x08} -- Regular file \newline
+		{\tt 0x0A} -- Symbolic link \newline
+		{\tt 0x0C} -- Socket
 		\\
-	\tline{0x05}{links}{uint32} & No & Number of hard links to this entry \\
-	\tline{0x06}{atime}{time\_t} & Yes & Last access time \\
-	\tline{0x07}{mtime}{time\_t} & Yes & Last modification time \\
-
-	\hline
-	\multicolumn{5}{|c|}{\textit{POSIX-specific attributes}} \\
-	\hline
-
-	\tline{0x10}{ptype}{byte} & No & File type TODO \\
-	\tline{0x11}{perms}{uint16} & Yes & File permission bits \\
+	\tline{0x11}{perms}{uint16} & Yes & File permission bits\footnotemark[3] \\
 	\tline{0x12}{ctime}{time\_t} & Yes & POSIX {\tt ctime} \\
 	\tline{0x13}{uid}{uint32} & Yes & User ID of owner \\
 	\tline{0x14}{gid}{uint32} & Yes & Group ID of owner \\
 
 	\hline
-	\multicolumn{5}{|c|}{\textit{Windows-specific attributes}} \\
+	\multicolumn{5}{c}{\textit{Windows-specific attributes}} \\
 	\hline
 
-	\tline{0x20}{attrib}{uint32} & Yes & Windows file attributes \\
+	\tline{0x20}{attributes}{uint32} & Yes & Windows file attributes \\
 	\tline{0x21}{cr\_time}{time\_t} & Yes & Entry creation time \\
 
-	\hline
+	%\hline
 \end{tabular}
-
 \end{center}
+
+{\footnotesize \footnotemark[1] The device ID is arbitrary. Entries within the same filesystem will have the
+same {\tt device\_id} and entries on different filesystems will have different values. No other guarantees are
+provided.}
+
+{\footnotesize \footnotemark[2] These values directly correspond to file type flags of {\tt st\_mode} field in
+{\tt struct stat}. The C~expression {\tt (posix\_type << 12)} can be tested with {\tt S\_IS*} macros.}
+
+{\footnotesize \footnotemark[3] This field corresponds to permission bits of {\tt st\_mode} field in {\tt
+struct stat}, including setuid, setgid and sticky bits. The values can be tested and set with {\tt S\_I*}
+permission flags.}
+
 \caption{Attribute codes, types and values}
 \label{table:attributes}
 \end{table}
@@ -397,6 +419,14 @@ Extensions can also provide new attribute codes.
 
 %%%
 \def\pkfield#1#2#3{ {\ttfamily #1} & {\ttfamily #2} & #3 \\ }
+\def\beginpk{
+	\begin{center}
+	\begin{tabular}{l p{3.2cm} p{6.8cm}}
+}
+\def\endpk{
+	\end{tabular}
+	\end{center}
+}
 
 \subsection{Extension mechanism}
 \label{ssec:extensions}
@@ -411,21 +441,11 @@ Extension codes {\tt 0x01}--{\tt 0x30} are reserved for standard extensions. Sta
 mentioned in~the~extension list, but their code is fixed and guaranteed to be the same on all implementations.
 Server must not allocate extension codes in this range.
 
-\begin{samepage}
 Server sends the extension list as a sequence of fields in the following format:
-\begin{tabular}{lll}
+\beginpk
 	\pkfield{byte}{extension\_code}{Extension code}
 	\pkfield{string}{extension\_name}{ASCII-encoded extension name}
-\end{tabular}
-\begin{description}[parsep=1pt]
-	\ttitem{byte extension\_code} \hfill \\
-		Extension code
-	\ttitem{uint16 extension\_name\_len} \hfill \\
-		Length of {\tt extension\_name}
-	\ttitem{string extension\_name} \hfill \\
-		Name of the extension
-\end{description}
-\end{samepage}
+\endpk
 
 Extensions can define new protocol commands and result codes, which are then referred to by the extension
 code. Extensions can also add new file attributes. Attribute codes do not use the extension code, so extension
@@ -448,13 +468,11 @@ operations in progress are aborted.
 
 \subsection{Framing}
 
-Every packet contains a field {\tt uint16 length}, usually denoted ``Length of payload''. This field contains
-total length, in bytes, of rest of the packet contents combined. Fields up to and including the {\tt length}
-field form the packet {\it header}, which must have a fixed length. Fields after the {\tt length} field form
-the packet {\it payload}. After encountering the {\tt length} field, an implementation should retrieve exactly
-that many bytes from the data stream to process the whole packet. If the packet is discarded, the
-implementation can resume parsing the data stream at that position and safely find the start of the next
-packet.
+Every packet consists of a fixed-length {\it header} and a variable-length {\it payload}. Last field of the
+header is always {\tt uint16 length}, which denotes length of the payload. After reading the header, an
+implementation should retrieve exactly {\tt length} bytes from the data stream to process the whole packet. If
+the packet is discarded, the implementation can resume parsing the data stream at that position and safely
+find the start of the next packet.
 
 Implementations must check that contents of the payload do not stretch beyond the end of the packet. Notably,
 if the payload contains variable-length fields with size specified inline, these must fit inside the packet.
@@ -470,50 +488,67 @@ big to allow any sort of meaningful communication anyway.
 
 %
 
-\subsection{Session initalization}
+\subsection{Request and response packets}
+
 
 \begin{samepage}
-After the TLS session is established, client introduces itself with the following packet:
+Request packet header looks like this:
 \begin{description}[parsep=1pt]
-	\ttitem{string newtp} \hfill \\
-		Fixed ASCII string ``{\tt NewTP}''
-	\ttitem{uint16 version} \hfill \\
-		Protocol version
+	\ttitem{uint16 request\_id} \hfill \\
+		Arbitrary request ID
+	\ttitem{byte extension} \hfill \\
+		Extension code, {\tt 0x00} for core command
+	\ttitem{byte command} \hfill \\
+		Command code
+	\ttitem{uint16 handle} \hfill \\
+		File handle
 	\ttitem{uint16 length} \hfill \\
-		Length of payload (in this case, 0)
+		Length of payload
 \end{description}
+\end{samepage}
+
+\begin{samepage}
+Reply packet header is as follows:
+\begin{description}[parsep=1pt]
+	\ttitem{uint16 request\_id} \hfill \\
+		Request ID from corresponding request
+	\ttitem{byte extension} \hfill \\
+		Extension code, {\tt 0x00} for core result code
+	\ttitem{byte result} \hfill \\
+		Result code
+	\ttitem{uint16 length} \hfill \\
+		Length of payload
+\end{description}
+\end{samepage}
+
+Payload of request packet contains arguments for the command, data to be written etc. Payload of response
+packet contains attribute query results, data read, details of error etc. 
+
+%
+
+\subsection{Session initalization}
+
+After the TLS session is established, client introduces itself with the following packet:
+\beginpk
+	\pkfield{data}{newtp}{Fixed ASCII string ``{\tt NewTP}''}
+	\pkfield{uint16}{version}{Protocol version}
+\endpk
 
 Protocol version is 1. We specify the payload length for extensibility: in a future version, client might be
 sending more info in the initial packet. In version 1, only the version number is sent.
-\end{samepage}
 
-\begin{samepage}
 Server replies with the following packet:
-\begin{description}[parsep=1pt]
-	\ttitem{string newtp} \hfill \\
-		Fixed ASCII string ``{\tt NewTP}''
-	\ttitem{uint16 version} \hfill \\
-		Protocol version.
-	\ttitem{uint16 length} \hfill \\
-		Length of payload
-	\ttitem{uint16 max\_handles} \hfill \\
-		Number of available file handles
-	\ttitem{uint16 max\_opendirs} \hfill \\
-		Number of directories available for simultaneous listing
-	\ttitem{uint16 platform\_len} \hfill \\
-		Length of {\tt platform}
-	\ttitem{string platform} \hfill \\
-		Platform string
-	\ttitem{uint16 authstr\_len} \hfill \\
-		Length of {\tt authstr}
-	\ttitem{string authstr} \hfill \\
-		List of supported SASL authentication mechanisms, separated by ASCII spaces ({\tt 0x20})
-	\ttitem{uint16 num\_extensions} \hfill \\
-		Number of extension fields TODO number or length?
-	\ttitem{data extensions} \hfill \\
-		Extension fields
-\end{description}
-\end{samepage}
+\beginpk
+	\pkfield{string}{newtp}{Fixed ASCII string ``{\tt NewTP}''}
+	\pkfield{uint16}{version}{Protocol version.}
+	\pkfield{uint16}{length}{Length of payload}
+	\pkfield{uint16}{max\_handles}{Number of available file handles}
+	\pkfield{uint16}{max\_opendirs}{Number of directories available for simultaneous listing}
+	\pkfield{string}{platform}{Platform string}
+	\pkfield{string}{authstr}{List of supported SASL authentication mechanisms, separated by ASCII spaces ({\tt 0x20})}
+	\pkfield{uint16}{num\_extensions}{Number of extension fields}
+	\pkfield{data}{extensions}{Extension fields}
+\endpk
 
 Platform string can be ``{\tt posix}'' or ``{\tt windows}'', this specifies which platform-specific attributes
 will be available. If the client does not recognize the platform string, it can only use the
@@ -652,48 +687,6 @@ At the end of the exchange, server will return an outcome in one of two ways:
 
 TODO define codes for success and failure
 
-%
-
-\subsection{Request and response packets}
-
-When the client is successfully authenticated, it can start sending {\it request} packets. Server will issue
-exactly one {\it response} packet for each request packet received, in the order of reception. Client can send
-any number of request packets without waiting for server reply. However, the server will process all requests
-from the batch even if some of them fail, so where required, the client has to wait for confirmation of
-success.
-
-\begin{samepage}
-Request packet header looks like this:
-\begin{description}[parsep=1pt]
-	\ttitem{uint16 request\_id} \hfill \\
-		Arbitrary request ID
-	\ttitem{byte extension} \hfill \\
-		Extension code, {\tt 0x00} for core command
-	\ttitem{byte command} \hfill \\
-		Command code
-	\ttitem{uint16 handle} \hfill \\
-		File handle
-	\ttitem{uint16 length} \hfill \\
-		Length of payload
-\end{description}
-\end{samepage}
-
-\begin{samepage}
-Reply packet header is as follows:
-\begin{description}[parsep=1pt]
-	\ttitem{uint16 request\_id} \hfill \\
-		Request ID from corresponding request
-	\ttitem{byte extension} \hfill \\
-		Extension code, {\tt 0x00} for core result code
-	\ttitem{byte result} \hfill \\
-		Result code
-	\ttitem{uint16 length} \hfill \\
-		Length of payload
-\end{description}
-\end{samepage}
-
-Payload of request packet contains arguments for the command, data to be written etc. Payload of response
-packet contains attribute query results, data read, details of error etc. 
 %%
 
 \begin{table}[h]
@@ -747,6 +740,7 @@ packet contains attribute query results, data read, details of error etc.
 
 	\hline
 
+	\tline{0xFD}{E\_UNSUPPORTED} & Feature or argument unsupported \\
 	\tline{0xFE}{E\_FAIL} & Generic command failure \\
 	\tline{0xFF}{E\_SERVFAIL} & Internal server error \\
 
