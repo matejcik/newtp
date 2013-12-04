@@ -93,7 +93,8 @@ struct share * share_next (struct share * seed)
 void delhandle (struct handle * handle)
 {
 	int c;
-	free(handle->path);
+	if (handle->path && *handle->path)
+		free(handle->path); /* might be constant "" */
 	free(handle->name);
 	if (handle->dir) closedir(handle->dir);
 	if (handle->fd) RETRY1(c, close(handle->fd));
@@ -107,19 +108,30 @@ int handle_assign (uint16_t handle, char const * buf, int len)
 #define DOT2 3
 #define OTHER 0
 	int state = SLASH;
-	char const *c = buf;
+	char const * c;
 	int pos = 0;
 	int shlen = -1; /* share len */
 
 	if (handle >= MAXHANDLES) return ERR_BADHANDLE;
 
+	if (len == 0) {
+		/* do nothing */
+	} else if (len == 1 && *buf == '/') { /* "/", forbid */
+		return ERR_BADPATH;
+	} else if (*buf != '/') { /* missing leading slash, forbid */
+		return ERR_BADPATH;
+	} else { /* skip leading slash */;
+		++buf; --len;
+	}
+
+	c = buf;
 	while (pos < len) {
 		if (!*c) return ERR_BADPATH;
+		if (state == SLASH && *c == '/') return ERR_BADPATH;
 		if (*c == '/' && shlen == -1) shlen = c - buf;
 
 		if (state == DOT1 && *c == '/') return ERR_BADPATH;
 		if (state == DOT2 && *c == '/') return ERR_BADPATH;
-		if (state == SLASH && *c == '/') return ERR_BADPATH;
 		if (*c == '/') state = SLASH;
 		else if (state == SLASH && *c == '.') state = DOT1;
 		else if (state == DOT1 && *c == '.') state = DOT2;

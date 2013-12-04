@@ -420,7 +420,7 @@ int cmd_STAT (struct command * cmd, char * payload, char * response)
 		return REPLY(ERR_BADATTR, 0);
 	}
 
-	if (fill_stat(h->path, h->writable, response, payload, cmd->length) == -1) {
+	if (fill_stat(h->path, h->writable, response + SIZEOF_reply(), payload, cmd->length) == -1) {
 		switch (errno) {
 			case EACCES:       return REPLY(ERR_DENIED, 0);
 			case ELOOP:        return REPLY(ERR_NOTFOUND, 0);
@@ -500,6 +500,7 @@ int cmd_WRITE (struct command * cmd, char * payload, char * response)
 	struct handle * h;
 	int err;
 	int write_length;
+	uint16_t total;
 	uint64_t offset;
 
 	/* be a good guy and pick parameters first */
@@ -563,10 +564,41 @@ int cmd_WRITE (struct command * cmd, char * payload, char * response)
 		} else {
 			payload += err;
 			write_length -= err;
+			total += err;
 		}
 	}
 	/* we have received and written all the requested data */
+	pack(response + SIZEOF_reply(), "s", total);
 	return REPLY(STAT_OK, sizeof(uint16_t));
+}
+
+int cmd_TRUNCATE (struct command * cmd, char * payload, char * response)
+{
+	struct handle * h;
+	uint64_t offset;
+	int res, err = STAT_OK;
+
+	DIE_OR(unpack(payload, cmd->length, "l", &offset));
+	VALIDATE_HANDLE(h);
+	logp("CMD_TRUNCATE %d (%s): ofs %llu", cmd->handle, h->path, (long long unsigned)offset);
+	if (!h->writable) return REPLY(ERR_DENIED, sizeof(uint16_t));
+
+	RETRY0(res, truncate(h->path, offset));
+	if (res == -1) { /* open failed */
+		if (errno == EACCES) err = ERR_DENIED;
+		else if (errno == EISDIR) err = ERR_NOTFILE;
+		else if (errno == ENOENT) err = ERR_NOTFOUND;
+		else if (errno == ENOTDIR) err = ERR_NOTFOUND;
+		else if (errno == EFBIG) err = ERR_TOOBIG;
+		else if (errno == EINVAL) err = ERR_TOOBIG;
+		else if (errno == EIO) err = ERR_IO;
+		else if (errno == ELOOP) err = ERR_BADPATH;
+		else if (errno == ENAMETOOLONG) err = ERR_BADPATH;
+		else if (errno == EPERM) err = ERR_UNSUPPORTED;
+		else if (errno == EROFS) err = ERR_DENIED;
+		else err = ERR_FAIL;
+	}
+	return REPLY(err, 0);
 }
 
 int cmd_DELETE (struct command * cmd, char * payload, char * response)
