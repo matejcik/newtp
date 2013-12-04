@@ -101,15 +101,15 @@
 
 #define INIT_WELCOME	0x00
 
-#define SASL_START    0x10
-#define SASL_STARTOPT 0x11
-#define SASL_REPLY    0x12
+#define SASL_START     0x10
+#define SASL_START_OPT 0x11
+#define SASL_RESPONSE  0x12
 
-#define SASL_R_CHALLENGE    0x10
-#define SASL_R_FINISHED     0x11
-#define SASL_R_FINISHED_OPT 0x12
-#define SASL_R_FAILED       0x1e
-#define SASL_R_FAILED_OPT   0x1f
-#define SASL_ERROR          0x20
+#define SASL_R_CHALLENGE     0x10
+#define SASL_R_SUCCESS       0x11
+#define SASL_R_SUCCESS_OPT   0x12
+#define SASL_E_FAILED        0x20
+#define SASL_E_BAD_MECHANISM 0x21
+#define SASL_E_BAD_MESSAGE   0x22
 
 #endif
