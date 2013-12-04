@@ -366,7 +366,7 @@ necessary; replicating the POSIX semantics in concurrent scenarios is out of sco
 		{\tt 0x0C} -- Socket
 		\\
 	\tline{0x11}{perms}{uint16} & Yes & File permission bits\footnotemark[3] \\
-	\tline{0x12}{ctime}{time\_t} & Yes & POSIX {\tt ctime} \\
+	\tline{0x12}{ctime}{time\_t} & No & POSIX {\tt ctime} \\
 	\tline{0x13}{uid}{uint32} & Yes & User ID of owner \\
 	\tline{0x14}{gid}{uint32} & Yes & Group ID of owner \\
 
@@ -585,7 +585,7 @@ disconnecting. This version of the protocol does not support separate authentica
 identities, so authorization identity string should always be empty.
 
 Mechanism negotiation is covered by the previous subsection. The core protocol does not allow the client to
-rediscover available authentication mechanism after the authentication step is completed. We consider this
+rediscover available authentication mechanisms after the authentication step is completed. We consider this
 acceptable, because the session is already secured by TLS. For the same reason, the protocol is not using SASL
 security layers even if they are available.
 
@@ -624,7 +624,7 @@ The server reply has one of several possible result codes:
 \begin{description}
 	\ttitem{0x10 R\_CHALLENGE} \hfill \\
 		Server challenge. Payload is a single {\tt data} field with contents of the challenge. The
-		client should react by sending a client response.
+		client must react by sending a client response.
 	\ttitem{0x11 R\_SUCCESS} \hfill \\
 		Successful outcome -- the client is now authenticated. This is an empty packet.
 	\ttitem{0x12 R\_SUCCESS\_OPT} \hfill \\
@@ -642,8 +642,8 @@ The server reply has one of several possible result codes:
 		Internal server error
 \end{description}
 
-Client response to {\tt R\_CHALLENGE} is a request packet with command code {\tt 0x12 SASL\_RESPONSE} and
-a {\tt data} payload with contents of the response.
+In response to {\tt R\_CHALLENGE}, client must send a request packet with command code {\tt 0x12
+SASL\_RESPONSE} and a {\tt data} payload with contents of the response.
 
 %%
 
