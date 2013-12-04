@@ -7,6 +7,8 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 
+#include <gnutls/gnutls.h>
+
 #include "common.h"
 #include "log.h"
 #include "structs.h"
@@ -168,51 +170,140 @@ int unpack (char const * const buffer, int available, char const * format, ...)
 	return buf - buffer;
 }
 
-int send_full (int sock, void *data, int len)
+/****** gnutls initialization and handling ******/
+
+static gnutls_session_t _session;
+static gnutls_anon_server_credentials_t _server_cred;
+static gnutls_anon_client_credentials_t _client_cred;
+static int _socket;
+
+void newtp_gnutls_init (int socket, int flag)
+{
+	int ret;
+	char const * err;
+
+	_socket = socket;
+
+	gnutls_global_init();
+	gnutls_init(&_session, flag);
+	ret = gnutls_priority_set_direct(_session,
+		"NORMAL:"
+		"+ANON-ECDH:"
+		"-COMP-ALL:+COMP-NULL:"
+		"-VERS-SSL3.0:-VERS-TLS1.0:-VERS-TLS1.1"
+		, &err);
+	if (ret != GNUTLS_E_SUCCESS) {
+		errp("error %s", gnutls_strerror(ret));
+		exit(6);
+	}
+
+
+	if (flag == GNUTLS_SERVER) {
+		gnutls_anon_allocate_server_credentials(&_server_cred);
+		gnutls_credentials_set(_session, GNUTLS_CRD_ANON, _server_cred);
+	} else {
+		gnutls_anon_allocate_client_credentials(&_client_cred);
+		gnutls_credentials_set(_session, GNUTLS_CRD_ANON, _client_cred);
+	}
+
+	gnutls_transport_set_ptr(_session, (void*)(uintptr_t)socket);
+
+	do { ret = gnutls_handshake(_session); } while (ret < 0 && gnutls_error_is_fatal(ret) == 0);
+	if (ret < 0) {
+		errp("TLS Handshake failed: %s", gnutls_strerror(ret));
+		newtp_gnutls_disconnect(0);
+		exit(6);
+	}
+}
+
+void newtp_gnutls_disconnect (int bye)
+{
+	if (bye) gnutls_bye(_session, GNUTLS_SHUT_RDWR);
+	close(_socket);
+	gnutls_deinit(_session);
+	gnutls_anon_free_server_credentials(_server_cred);
+	gnutls_anon_free_client_credentials(_client_cred);
+	gnutls_global_deinit();
+}
+
+int send_full (void *data, int len)
 {
 	assert(len > 0); /* because otherwise returns 0, which makes the caller think that connection dropped */
 	const char *buf = (const char *) data;
 	int total = 0;
 	while (total < len) {
-		int w = send(sock, buf + total, len - total, 0);
-		if (w < 0) {
-			if (errno == EINTR) continue;
-			else return -1;
-		} else if (w == 0) {
-			return 0;
-		} else {
-			total += w;
-		}
+		int w = gnutls_record_send(_session, buf + total, len - total);
+		if (w <= 0) return w;
+		total += w;
 	}
 	return total;
 }
 
-int recv_full (int sock, void *data, int len)
+int recv_full (void *data, int len)
 {
 	assert(len > 0); /* because otherwise returns 0, which makes the caller think that connection dropped */
 	char *buf = (char *) data;
 	int total = 0;
 	while (total < len) {
-		int r = recv(sock, buf + total, len - total, 0);
-		if (r < 0) {
-			if (errno == EINTR) continue;
-			else return -1; /* error */
-		}
-		if (r == 0) return 0; /* connection reset by peer */
+		int r = gnutls_record_recv(_session, buf + total, len - total);
+		if (r <= 0) return r;
 		total += r;
 	}
 	return total;
 }
 
-int skip_data (int sock, int len)
+int skip_data (int len)
 {
 #define SKIP_BUF 16384
 	char buf[SKIP_BUF];
 	int r;
 	while (len > 0) {
-		r = recv(sock, buf, ((len > SKIP_BUF) ? SKIP_BUF : len), 0);
+		r = gnutls_record_recv(_session, buf, ((len > SKIP_BUF) ? SKIP_BUF : len));
 		if (r <= 0) return r;
 		len -= r;
 	}
 	return 1;
+}
+
+int continue_or_die (int err)
+{
+	if (err > 0) return err;
+	if (err == 0) { /* peer has closed connection */
+		log("lost connection to peer");
+		newtp_gnutls_disconnect(1);
+		log("disconnect done");
+		exit(2);
+	} else if (gnutls_error_is_fatal(err) == 0) {
+		warnp("TLS warning: %s", gnutls_strerror(err));
+		return 0;
+	} else {
+		errp("TLS error: %s", gnutls_strerror(err));
+		err("closing connection");
+		newtp_gnutls_disconnect(0);
+		exit(1);
+	}
+}
+
+int safe_send_full (void *data, int len)
+{
+	int ret;
+	/* zero indicates non-fatal failure, retry the call */
+	while ((ret = continue_or_die(send_full(data, len))) == 0) { }
+	return ret;
+}
+
+int safe_recv_full (void *data, int len)
+{
+	int ret;
+	/* zero indicates non-fatal failure, retry the call */
+	while ((ret = continue_or_die(recv_full(data, len))) == 0) { }
+	return ret;
+}
+
+int safe_skip_data (int len)
+{
+	int ret;
+	/* zero indicates non-fatal failure, retry the call */
+	while ((ret = continue_or_die(skip_data(len))) == 0) { }
+	return ret;
 }

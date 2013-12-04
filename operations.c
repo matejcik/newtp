@@ -7,11 +7,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
-#include <sys/socket.h>
+/*#include <sys/socket.h>*/
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include <arpa/inet.h>
+/*#include <arpa/inet.h>*/
 
 #include "commands.h"
 #include "common.h"
@@ -420,7 +420,7 @@ int cmd_STAT (struct command * cmd, char * payload, char * response)
 		return REPLY(ERR_BADATTR, 0);
 	}
 
-	if (fill_stat(h->path, h->writable, response, payload, cmd->length) == -1) {
+	if (fill_stat(h->path, h->writable, response + SIZEOF_reply(), payload, cmd->length) == -1) {
 		switch (errno) {
 			case EACCES:       return REPLY(ERR_DENIED, 0);
 			case ELOOP:        return REPLY(ERR_NOTFOUND, 0);
@@ -458,7 +458,8 @@ int cmd_READ (struct command * cmd, char * payload, char * response)
 		if (h->fd == -1) { /* open failed */
 			if (errno == EACCES) err = ERR_DENIED;
 			else if (errno == ENOENT) err = ERR_NOTFOUND;
-			else if (errno == ENOTDIR) err = ERR_BADPATH;
+			else if (errno == ENOTDIR) err = ERR_NOTFOUND;
+			else if (errno == EISDIR) err = ERR_NOTFILE;
 			else err = ERR_FAIL;
 			return REPLY(err, 0);
 		}
@@ -500,6 +501,7 @@ int cmd_WRITE (struct command * cmd, char * payload, char * response)
 	struct handle * h;
 	int err;
 	int write_length;
+	uint16_t total;
 	uint64_t offset;
 
 	/* be a good guy and pick parameters first */
@@ -520,7 +522,7 @@ int cmd_WRITE (struct command * cmd, char * payload, char * response)
 		h->fd = -1;
 	}
 	if (h->fd == -1) {
-		RETRY1(h->fd, open(h->path, O_CREAT | O_WRONLY)); /* TODO think about mode? */
+		RETRY1(h->fd, open(h->path, O_CREAT | O_WRONLY, 0666)); /* default noexec mode, modulo umask */
 		err = STAT_OK;
 		if (h->fd == -1) { /* open failed */
 			if (errno == EACCES) err = ERR_DENIED;
@@ -563,17 +565,81 @@ int cmd_WRITE (struct command * cmd, char * payload, char * response)
 		} else {
 			payload += err;
 			write_length -= err;
+			total += err;
 		}
 	}
 	/* we have received and written all the requested data */
+	pack(response + SIZEOF_reply(), "s", total);
 	return REPLY(STAT_OK, sizeof(uint16_t));
+}
+
+int cmd_TRUNCATE (struct command * cmd, char * payload, char * response)
+{
+	struct handle * h;
+	uint64_t offset;
+	int res, err = STAT_OK;
+
+	DIE_OR(unpack(payload, cmd->length, "l", &offset));
+	VALIDATE_HANDLE(h);
+	logp("CMD_TRUNCATE %d (%s): ofs %llu", cmd->handle, h->path, (long long unsigned)offset);
+	if (!h->writable) return REPLY(ERR_DENIED, sizeof(uint16_t));
+
+	RETRY0(res, truncate(h->path, offset));
+	if (res == -1) {
+		if (errno == EACCES) err = ERR_DENIED;
+		else if (errno == EISDIR) err = ERR_NOTFILE;
+		else if (errno == ENOENT) err = ERR_NOTFOUND;
+		else if (errno == ENOTDIR) err = ERR_NOTFOUND;
+		else if (errno == EFBIG) err = ERR_TOOBIG;
+		else if (errno == EINVAL) err = ERR_TOOBIG;
+		else if (errno == EIO) err = ERR_IO;
+		else if (errno == ELOOP) err = ERR_BADPATH;
+		else if (errno == ENAMETOOLONG) err = ERR_BADPATH;
+		else if (errno == EPERM) err = ERR_UNSUPPORTED;
+		else if (errno == EROFS) err = ERR_DENIED;
+		else err = ERR_FAIL;
+	}
+	return REPLY(err, 0);
 }
 
 int cmd_DELETE (struct command * cmd, char * payload, char * response)
 {
-	return -1;
+	struct handle * h;
+	int res, err = STAT_OK;
+	VALIDATE_HANDLE(h);
+	logp("CMD_DELETE %d (%s)", cmd->handle, h->path);
+	if (!h->writable) return REPLY(ERR_DENIED, 0);
+	res = remove(h->path);
+	if (res == -1) {
+		if (errno == EACCES) err = ERR_DENIED;
+		else if (errno == EBUSY) err = ERR_BUSY;
+		else if (errno == EIO) err = ERR_IO;
+		else if (errno == EISDIR || errno == EPERM)
+			/* this really should not be happening with remove(3) */
+			err = ERR_FAIL;
+		else if (errno == ELOOP) err = ERR_BADPATH;
+		else if (errno == ENAMETOOLONG) err = ERR_BADPATH;
+		else if (errno == ENOENT) err = ERR_NOTFOUND;
+		else if (errno == ENOTDIR) err = ERR_NOTFOUND;
+		else if (errno == EINVAL) err = ERR_BADPATH;
+		else if (errno == EROFS) err = ERR_DENIED;
+		else if (errno == ENOTEMPTY) err = ERR_NOTEMPTY;
+		else err = ERR_FAIL;
+		break;
+	}
+	return REPLY(err, 0);
 }
+
 int cmd_RENAME (struct command * cmd, char * payload, char * response)
+{
+	struct handle * h, * nh;
+	int res, err = STAT_OK;
+	VALIDATE_HANDLE(h);
+	logp("CMD_DELETE %d (%s)", cmd->handle, h->path);
+	if (!h->writable) return REPLY(ERR_DENIED, 0);
+}
+
+int cmd_MAKEDIR (struct command * cmd, char * payload, char * response)
 {
 	return -1;
 }
