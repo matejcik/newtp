@@ -9,6 +9,7 @@
 #include "common.h"
 #include "log.h"
 #include "structs.h"
+#include "tools.h"
 
 #define FUSE_USE_VERSION 28
 #include <fuse.h>
@@ -16,16 +17,121 @@
 #define STAT_ATTR_QUERY "\x10\x11\x04\x13\x14\x02\x05\x06\x12"
 #define STAT_RESULT_LENGTH (1 + 2 + 4 + 4 + 4 + 8 + 8 + 8 + 8)
 
+
+#define MAX_HANDLES 16384
+#define HASH_MODULE 4679
+
+typedef struct {
+	int size;
+	int items;
+	uint16_t * bucket;
+} hash_bucket;
+
+struct connection_info {
+	struct intro intro;
+
+	char ** handles;
+	int * handles_open;
+	uint16_t max_handles;
+	uint16_t cur_handle;
+	hash_bucket * handle_ht;
+
+	int opendirs;
+};
+
+static struct connection_info conn;
+static struct fuse_operations newtp_oper;
+
+int main(int argc, char** argv) {
+	int ret;
+	memset(&conn, 0, sizeof(conn));
+
+	/* connect */
+	if (newtp_client_connect("localhost", "63987", &conn.intro, NULL)) return 1;
+
+	/* initialize conn */
+	conn.max_handles = (MAX_HANDLES < conn.intro.max_handles) ? MAX_HANDLES : conn.intro.max_handles;
+	conn.handles = xmalloc(sizeof(char *) * conn.max_handles);
+	conn.handles_open = xmalloc(sizeof(int) * conn.max_handles);
+	conn.handle_ht = xmalloc(sizeof(hash_bucket) * HASH_MODULE);
+
+	/* proceed */
+	ret = fuse_main(argc, argv, &newtp_oper, NULL);
+
+	newtp_gnutls_disconnect(1);
+	return ret;
+}
+
+/* the djb2 hashing function
+ * http://www.cse.yorku.ca/~oz/hash.html */
+unsigned long djb2 (char const * str)
+{
+	unsigned char * s = (unsigned char *)str;
+	unsigned long hash = 5381;
+	int c;
+	while ((c = *s++))
+		hash = ((hash << 5) + hash) ^ c; /* hash * 33 ^ c */
+	return hash;
+}
+
+/* gets handle from hashtable or assigns a new one */
 uint16_t get_handle (char const * path) {
 	struct reply reply;
+	unsigned long hash = djb2(path) % HASH_MODULE;
+	int len = strlen(path);
+	hash_bucket * bucket;
 
-	/* TODO path length */
-	strncpy(data_out, path, MAX_LENGTH);
-	reply_for_command(0, CMD_ASSIGN, 1, strlen(path), &reply);
+	/* perform hash lookup */
+	bucket = conn.handle_ht + hash;
+	for (int i = 0; i < bucket->items; i++) {
+		uint16_t handle = bucket->bucket[i];
+		if (strcmp(conn.handles[handle], path)) continue;
+		/* found it */
+		return handle;
+	}
+	/* path is not in table */
+
+	/* can we allocate more? */
+	int ch = conn.cur_handle;
+	if (conn.handles[ch]) {
+		/* we cannot. find first non-open handle. that should not take long */
+		while (conn.handles_open[ch])
+			ch = (ch + 1) % conn.max_handles;
+		/* destroy it */
+		conn.handles_open[ch] = 0;
+		unsigned long h2 = djb2(conn.handles[ch]) % HASH_MODULE;
+		free(conn.handles[ch]);
+		/* delete hashtable entry */
+		bucket = conn.handle_ht + h2;
+		int p;
+		for (p = 0; (p < bucket->items) && (bucket->bucket[p] != ch); p++) { /* nothing */ }
+		for (; p < bucket->size - 1; p++)
+			bucket->bucket[p] = bucket->bucket[p + 1];
+		bucket->items--;
+	}
+
+	/* install new entry */
+	conn.handles[ch] = xmalloc(len + 1);
+	strcpy(conn.handles[ch], path);
+	/* place into hashtable */
+	bucket = conn.handle_ht + hash;
+	if (bucket->items == bucket->size) {
+		if (bucket->size == 0) bucket->size = 32;
+		else bucket->size *= 2;
+		bucket->bucket = xrealloc(bucket->bucket, sizeof(uint16_t) * bucket->size);
+	}
+	bucket->bucket[bucket->items++] = ch;
+	conn.cur_handle = (ch + 1) % conn.max_handles;
+
+	/* assign on server */
+	strcpy(data_out, path);
+	reply_for_command(0, CMD_ASSIGN, ch, len, &reply);
 	assert(reply.result == STAT_OK);
 
-	return 1;
+	return ch;
 }
+
+/**** value converters ****/
 
 void newtp_time_to_timespec (struct timespec *ts, uint64_t ntime)
 {
@@ -79,6 +185,8 @@ int newtp_result_to_errno (int result)
 	if (_r < 0) return _r; \
 }
 
+/**** filesystem calls ****/
+
 int newtp_getattr (char const * path, struct stat * st)
 {
 	struct reply reply;
@@ -102,23 +210,47 @@ int newtp_getattr (char const * path, struct stat * st)
 	return 0;
 }
 
+int newtp_opendir (char const * path, struct fuse_file_info * fi)
+{
+	struct reply reply;
+	/* "/" is forbidden in NewTP */
+	if (strcmp(path, "/") == 0) path = "";
+
+	int handle = get_handle(path);
+	if (conn.opendirs > conn.intro.max_opendirs) /* reached max number of open dirs */
+		return -ENFILE;
+
+	/* rewind */
+	reply_for_command(0, CMD_REWINDDIR, handle, 0, &reply);
+	MAYBE_RET;
+	/* success */
+	conn.opendirs++;
+	conn.handles_open[handle] = 1;
+	fi->fh = handle;
+	return 0;
+}
+
+int newtp_releasedir (char const * path, struct fuse_file_info * fi)
+{
+	int handle = fi->fh;
+	conn.handles_open[handle] = 0;
+	conn.opendirs--;
+	return 0;
+}
+
 int newtp_readdir (char const * path, void * buf, fuse_fill_dir_t filler,
 		off_t offset, struct fuse_file_info * fi)
 {
 	struct reply reply;
 	struct dir_entry entry;
 	struct stat st;
-	int handle, remaining;
+	int handle = fi->fh;
+	int remaining;
 	uint16_t items;
 	char * item;
 
 	memset(&st,    0, sizeof(struct stat));
 	memset(&entry, 0, sizeof(struct dir_entry));
-	if (strcmp(path, "/") == 0) path = "";
-
-	handle = get_handle(path);
-	reply_for_command(0, CMD_REWINDDIR, handle, 0, &reply);
-	MAYBE_RET;
 
 	st.st_mode = S_IFDIR | 0755;
 	filler(buf, "." , &st, 0);
@@ -150,22 +282,21 @@ int newtp_readdir (char const * path, void * buf, fuse_fill_dir_t filler,
 }
 
 int newtp_read (char const * path, char * buf, size_t size, off_t offset,
-		struct fuse_file_info *fi)
+		struct fuse_file_info * fi)
 {
 	struct reply reply;
 	struct params_offlen params;
-	int handle = get_handle(path);
+	int handle = fi->fh;
 	size_t total = 0;
 	
 	params.offset = offset;
-	while (size > 0) {
-		if (size > MAX_LENGTH) params.length = MAX_LENGTH;
-		else params.length = size;
+	while (total < size) {
+		if (size - total > MAX_LENGTH) params.length = MAX_LENGTH;
+		else params.length = size - total;
 		pack_params_offlen(data_out, &params);
 		reply_for_command(0, CMD_READ, handle, SIZEOF_params_offlen(), &reply);
 		MAYBE_RET;
-		memcpy(buf, data_in, reply.length);
-		size -= reply.length;
+		memcpy(buf + total, data_in, reply.length);
 		total += reply.length;
 		params.offset += reply.length;
 		if (reply.length < params.length) return total;
@@ -174,29 +305,60 @@ int newtp_read (char const * path, char * buf, size_t size, off_t offset,
 }
 
 int newtp_write (char const * path, char const * buf, size_t size, off_t offset,
-		struct fuse_file_info *fi)
+		struct fuse_file_info * fi)
 {
 	struct reply reply;
-	int handle = get_handle(path);
+	int handle = fi->fh;
 	size_t total = 0;
 	uint64_t off = offset;
 	uint16_t len = 0, retlen = 0;
 
-	while (size > 0) {
-		if (size > MAX_LENGTH - 8) len = MAX_LENGTH - 8;
-		else len = size;
+	while (total < size) {
+		if (size - total > MAX_LENGTH - 8) len = MAX_LENGTH - 8;
+		else len = size - total;
 		pack(data_out, "l", off);
-		memcpy(data_out + 8, buf, len);
+		memcpy(data_out + 8, buf + total, len);
 		reply_for_command(0, CMD_WRITE, handle, len + 8, &reply);
 		MAYBE_RET;
 		assert(reply.length >= 2);
 		unpack(data_in, reply.length, "s", &retlen);
-		size -= retlen;
 		total += retlen;
 		off += retlen;
 		if (retlen < len) return total;
 	}
 	return total;
+}
+
+int newtp_open (char const * path, struct fuse_file_info * fi)
+{
+	int handle = get_handle(path);
+	/* mark the handle as open */
+	conn.handles_open[handle] = 1;
+	/* FUSE stats the file and checks for permissions,
+	 * if there's a race, we can't do anything anyway */
+	fi->fh = handle;
+	return 0;
+}
+
+int newtp_release (char const * path, struct fuse_file_info * fi)
+{
+	int handle = fi->fh;
+	conn.handles_open[handle] = 0;
+	return 0;
+}
+
+int newtp_create (char const * path, mode_t mode, struct fuse_file_info * fi)
+{
+	struct reply reply;
+	int handle = get_handle(path);
+	(void) mode; /* we don't use mode */
+	pack(data_out, "l", (uint64_t)0);
+	reply_for_command(0, CMD_WRITE, handle, 8, &reply);
+	MAYBE_RET;
+	/* created successfully, that's as much as we can hope for */
+	conn.handles_open[handle] = 1;
+	fi->fh = handle;
+	return 0;
 }
 
 int newtp_truncate (char const * path, off_t offset)
@@ -213,11 +375,16 @@ int newtp_truncate (char const * path, off_t offset)
 
 
 static struct fuse_operations newtp_oper = {
-	.getattr  = newtp_getattr,
-	.readdir  = newtp_readdir,
-	.read     = newtp_read,
-	.write    = newtp_write,
-	.truncate = newtp_truncate,
+	.getattr    = newtp_getattr,
+	.opendir    = newtp_opendir,
+	.readdir    = newtp_readdir,
+	.releasedir = newtp_releasedir,
+	.create     = newtp_create,
+	.open       = newtp_open,
+	.read       = newtp_read,
+	.write      = newtp_write,
+	.release    = newtp_release,
+	.truncate   = newtp_truncate,
 };
 
 /*
@@ -250,12 +417,3 @@ static struct fuse_operations newtp_oper = {
 	.fsync      = newtp_fsync,
 };
 */
-
-int main(int argc, char** argv) {
-	struct intro intro;
-	int ret;
-	if (newtp_client_connect("localhost", "63987", &intro, NULL)) return 1;
-	ret = fuse_main(argc, argv, &newtp_oper, NULL);
-	newtp_gnutls_disconnect(1);
-	return ret;
-}

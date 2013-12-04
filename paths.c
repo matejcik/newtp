@@ -10,7 +10,7 @@
 #include "paths.h"
 #include "tools.h"
 
-#define MAXHANDLES 16
+#define MAXHANDLES 16384
 struct handle * handles[MAXHANDLES];
 
 int handle_init ()
