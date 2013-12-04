@@ -22,11 +22,11 @@ appropriate, anonymous authentication mechanism will be available. A conforming 
 least anonymous and password-based authentication.\footnote{That is, {\tt ANONYMOUS} and {\tt PLAIN} SASL
 mechanisms.}
 
-Once the session is established, client sends requests and receives replies in a common format. Every command
-operates on an object refered to by a file handle. Before use, client must set up the file handle by assigning
-a path string to it. Requests specify an arbitrary ID that is repeated in the reply; although this version of
-the protocol does not allow it, future revisions might let the server reorder replies, in which case the
-request ID will be used to match replies to corresponding requests.
+Once the session is established, client sends requests and receives replies in a common format. Commands
+usually operate on filesystem objects refered to by a file handle. Before use, client must set up the file
+handle by assigning a path string to it. Requests specify an arbitrary ID that is repeated in the reply;
+although this version of the protocol does not allow it, future revisions might let the server reorder
+replies, in which case the request ID will be used to match replies to corresponding requests.
 
 Core NewTP command set consists of ranged read, ranged write with implicit file creation, truncate operation,
 directory listing that includes selected metadata attributes, creating directories, delete and rename/move
@@ -322,26 +322,7 @@ necessary; replicating the POSIX semantics in concurrent scenarios is out of sco
 
 %
 
-\subsection{Metadata}
-
-We define a set of basic attributes known about directory entries: entry type, size, creation time,
-modification time, access rights etc. Each item is assigned a name, data type and a code. Recognized
-attributes are listed in table~\ref{table:attributes}.
-
-When requesting directory listing, the client specifies a sequence of codes, and specified metadata is
-returned as part of each entry in the listing. Requested attributes for {\tt STAT} are specified in the same
-way. Filesystem-like clients will request the full list, clients that want to save bandwidth can only ask for
-attributes they are interested in.  Note that the full list is relatively long: three time fields and a size
-field add up to 32 bytes, which is often longer than the entry name.
-
-The {\tt SETATTR} call takes an attribute code and its new value. Only some attributes can be set, those are
-marked as ``writable'' in the table. The fact that an attribute is writable does not necessarily mean that the
-client has permission to set it.
-
-Extended attributes and ACLs are not supported in the core protocol, but support can be added via extensions.
-Extensions can also provide new attribute codes.
-
-\begin{table}[p]
+\begin{table}
 \begin{center}
 
 \def\tline#1#2#3{
@@ -417,11 +398,32 @@ permission flags.}
 
 %
 
+\subsection{Metadata}
+
+We define a set of basic attributes known about directory entries: entry type, size, creation time,
+modification time, access rights etc. Each item is assigned a name, data type and a code. Recognized
+attributes are listed in table~\ref{table:attributes}.
+
+When requesting directory listing, the client specifies a sequence of codes, and specified metadata is
+returned as part of each entry in the listing. Requested attributes for {\tt STAT} are specified in the same
+way. Filesystem-like clients will request the full list, clients that want to save bandwidth can only ask for
+attributes they are interested in.  Note that the full list is relatively long: three time fields and a size
+field add up to 32 bytes, which is often longer than the entry name.
+
+The {\tt SETATTR} call takes an attribute code and its new value. Only some attributes can be set, those are
+marked as ``writable'' in the table. The fact that an attribute is writable does not necessarily mean that the
+client has permission to set it.
+
+Extended attributes and ACLs are not supported in the core protocol, but support can be added via extensions.
+Extensions can also provide new attribute codes.
+
+%
+
 %%%
 \def\pkfield#1#2#3{ {\ttfamily #1} & {\ttfamily #2} & #3 \\ }
-\def\beginpk{
+\newcommand{\beginpk}[1][p{3.2cm} p{6.8cm}] {
 	\begin{center}
-	\begin{tabular}{l p{3.2cm} p{6.8cm}}
+	\begin{tabular}{l #1}
 }
 \def\endpk{
 	\end{tabular}
@@ -436,10 +438,10 @@ which must be unique, and an extension code, which can be dynamically assigned b
 the same extension can have different codes on different servers, or even between one session and another.
 
 Extension code {\tt 0x00} is reserved for core protocol commands. Extension code~{\tt 0xFF} is reserved for
-session initialization and SASL authentication messages. Neither can be used in the extension list.
-Extension codes {\tt 0x01}--{\tt 0x30} are reserved for standard extensions. Standard extensions will be
-mentioned in~the~extension list, but their code is fixed and guaranteed to be the same on all implementations.
-Server must not allocate extension codes in this range.
+session initialization and SASL authentication messages. Neither can be used in the extension list.  Extension
+codes {\tt 0x01}--{\tt 0x30} are reserved for standard extensions. Standard extensions will be mentioned
+in~the~extension list if they are present, but their code is fixed and guaranteed to be the same on all
+implementations.  Server must not allocate extension codes in this range.
 
 Server sends the extension list as a sequence of fields in the following format:
 \beginpk
@@ -456,9 +458,9 @@ existing commands or replies.
 
 \section{Communication scheme}
 
-After establishing the TCP connection and successful TLS handshake, the client starts session initialization,
-through which it agrees on a common version with the server. If the session was initialized successfully,
-client starts the SASL authentication process. If that is successful, client can start sending commands.
+After establishing a TLS connection, the client starts session initialization, through which it
+agrees on a common version with the server. If the session is initialized successfully, client starts the
+SASL authentication process. If that is successful, client can start sending commands.
 
 Client can disconnect at any time. If the server detects client disconnect, it destroys all associated state,
 except for replay cache described in the Replay extension. Unprocessed commands are discarded and long-running
@@ -474,6 +476,8 @@ implementation should retrieve exactly {\tt length} bytes from the data stream t
 the packet is discarded, the implementation can resume parsing the data stream at that position and safely
 find the start of the next packet.
 
+Length can be zero, indicating an empty packet. In that case, another packet header follows immediately.
+
 Implementations must check that contents of the payload do not stretch beyond the end of the packet. Notably,
 if the payload contains variable-length fields with size specified inline, these must fit inside the packet.
 But even if the implementation only expects fixed-length fields, it must check whether the packet is long
@@ -482,66 +486,64 @@ malformed and should be discarded.\footnote{If the server discards a packet, it 
 the expected or calculated length of payload is smaller than {\tt length}, the implementation must ignore the
 remaining data -- these may contain fields that the implementation does not understand.
 
-Only the payload and not the packet header is framed through the {\tt length} field. We assume that if
-a communicating party does not understand the fixed-format header, the difference in protocol versions is too
-big to allow any sort of meaningful communication anyway.
+Only the payload is framed through the {\tt length} field, not the header. We assume that if a communicating
+party does not understand the fixed-format header, the difference in protocol versions is too big to allow any
+sort of meaningful communication anyway.
 
 %
 
-\subsection{Request and response packets}
+\subsection{Request and reply packets}
 
+Except for the initial magic strings, all communication uses uniform request and reply packets.
 
-\begin{samepage}
-Request packet header looks like this:
-\begin{description}[parsep=1pt]
-	\ttitem{uint16 request\_id} \hfill \\
-		Arbitrary request ID
-	\ttitem{byte extension} \hfill \\
-		Extension code, {\tt 0x00} for core command
-	\ttitem{byte command} \hfill \\
-		Command code
-	\ttitem{uint16 handle} \hfill \\
-		File handle
-	\ttitem{uint16 length} \hfill \\
-		Length of payload
-\end{description}
-\end{samepage}
+Request packets, sent by the client, use the following header:
+\beginpk[p{2.7cm} p{7.3cm}]
+	\pkfield{uint16}{request\_id}{Arbitrary request ID}
+	\pkfield{byte}{extension}{Extension code, {\tt 0x00} for core command}
+	\pkfield{byte}{command}{Command code}
+	\pkfield{uint16}{handle}{File handle}
+	\pkfield{uint16}{length}{Length of payload}
+\endpk
 
-\begin{samepage}
-Reply packet header is as follows:
-\begin{description}[parsep=1pt]
-	\ttitem{uint16 request\_id} \hfill \\
-		Request ID from corresponding request
-	\ttitem{byte extension} \hfill \\
-		Extension code, {\tt 0x00} for core result code
-	\ttitem{byte result} \hfill \\
-		Result code
-	\ttitem{uint16 length} \hfill \\
-		Length of payload
-\end{description}
-\end{samepage}
+Every request packet specifies a file handle. Certain commands, session initialization packets, do not use
+a file handle argument. In such case, value of the {\tt handle} field is ignored.
 
-Payload of request packet contains arguments for the command, data to be written etc. Payload of response
-packet contains attribute query results, data read, details of error etc. 
+Reply packets, sent by the server, use the following header:
+\beginpk[p{2.7cm} p{7.3cm}]
+	\pkfield{uint16}{request\_id}{Request ID from corresponding request}
+	\pkfield{byte}{extension}{Extension code, {\tt 0x00} for core result code}
+	\pkfield{byte}{result}{Result code}
+	\pkfield{uint16}{length}{Length of payload}
+\endpk
+
+Server must send replies in the order of received requests. Each reply must copy the request ID of
+corresponding request. Request ID s are arbitrarily selected by the client, and the server should not use them
+for any other purpose than matching replies to requests.
+
+Payload of request packet contains arguments for the command, data to be written etc. Payload of reply
+packet contains attribute query results, data read, details of error etc. Descriptions of commands specify
+payload formats for both requests and replies to that command.
 
 %
 
 \subsection{Session initalization}
 
-After the TLS session is established, client introduces itself with the following packet:
+After the TLS session is established, client sends the following 7-byte magic sequence:
 \beginpk
 	\pkfield{data}{newtp}{Fixed ASCII string ``{\tt NewTP}''}
 	\pkfield{uint16}{version}{Protocol version}
 \endpk
 
-Protocol version is 1. We specify the payload length for extensibility: in a future version, client might be
-sending more info in the initial packet. In version 1, only the version number is sent.
+Protocol version is 1. After the magic string, client immediately sends a request packet with extension
+code {\tt 0xFF} and command code {\tt 0x00}. In a future version, this packet might contain introductory data
+about the client. For now, no introductory data are necessary, so the packet is empty.
 
-Server replies with the following packet:
+After receiving client introduction, the server introduces itself with the same magic sequence, followed by
+a reply packet. This reply packet sets extension code {\tt 0xFF} and result code {\tt 0x00}. Any other result
+code indicates that session negotiation has failed and connection must be terminated.
+
+The reply packet carries the following payload:
 \beginpk
-	\pkfield{string}{newtp}{Fixed ASCII string ``{\tt NewTP}''}
-	\pkfield{uint16}{version}{Protocol version.}
-	\pkfield{uint16}{length}{Length of payload}
 	\pkfield{uint16}{max\_handles}{Number of available file handles}
 	\pkfield{uint16}{max\_opendirs}{Number of directories available for simultaneous listing}
 	\pkfield{string}{platform}{Platform string}
@@ -562,7 +564,7 @@ backwards-compatible with client version. In that case, client should probably a
 If the client version is higher than the server version, client should either use the protocol version
 supplied by server, or abort the connection attempt.
 
-Format of extension fields is described in section \ref{ssec:extensions} Extension mechanism.
+Format of extension fields is described in section~\ref{ssec:extensions}.
 
 This concludes the session initialization. The client can now select an authentication mechanism and proceed
 to the next step. If the server advertises the {\tt ANONYMOUS} mechanism, the client should select it, unless
@@ -593,103 +595,59 @@ zero or more times. At the end of the exchange, in reply to last client response
 packet.  If the outcome is success, client is authenticated and can start sending commands. If the outcome is
 failure, server will disconnect the client.
 
-Client initiates the authentication exchange by sending one of the following packets:
+SASL authentication packets follow the uniform packet format. Extension code is always {\tt 0xFF} and file
+handle field is ignored. Contents of challenges and responses are transmitted as pure data, i.e., no
+additional encoding (such as base64) is applied.
+
+Note that the SASL terminology does not correspond to NewTP's communication scheme: the client is sending
+NewTP {\it request} packets that contain SASL {\it responses}, and the server responds to these with NewTP
+{\it reply} packets carrying SASL {\it challenges}. In the following text, the words ``request'', ``reply'',
+``challenge'' and ``response'' denote concepts from the corresponding protocol, as outlined in this paragraph.
+
+Client initiates the authentication exchange by sending one of the following request packets:
+
 \begin{enumerate}
 
-\begin{samepage}
-\item Initiation with mechanism name, {\it without} initial response
-\begin{description}[parsep=1pt]
-	\ttitem{string auth\_init} \hfill \\
-		Fixed ASCII string ``{\tt A0}''
-	\ttitem{uint16 length} \hfill \\
-		Length of payload (in this case, only the mechanism name)
-	\ttitem{string mechanism} \hfill \\
-		Name of the selected mechanism
-\end{description}
-\end{samepage}
+\item Initiation with mechanism name, {\it without} initial response. Command code is {\tt 0x10 SASL\_START}.
+Payload is a single {\tt data} field, containing name of the selected mechanism.
 
-\begin{samepage}
-\item Initiation with mechanism name, {\it with} initial response
-\begin{description}[parsep=1pt]
-	\ttitem{string auth\_init} \hfill \\
-		Fixed ASCII string ``{\tt A1}''
-	\ttitem{uint16 length} \hfill \\
-		Length of payload
-	\ttitem{uint16 mechanism\_len} \hfill \\
-		Length of mechanism name
-	\ttitem{string mechanism} \hfill \\
-		Name of the selected mechanism
-	\ttitem{uint16 response\_len} \hfill \\
-		Length of initial response
-	\ttitem{data response} \hfill \\
-		Initial response
-\end{description}
-\end{samepage}
+\item Initiation with mechanism name, {\it with} initial response. Command code is {\tt 0x11 SASL\_START\_OPT}.
+Payload is in the following format:
 
+\beginpk
+	\pkfield{string}{mechanism}{Name of the selected mechanism}
+	\pkfield{string}{response}{Initial response}
+\endpk
 \end{enumerate}
 
-\begin{samepage}
-Server challenge packet format is as follows:
-\begin{description}[parsep=1pt]
-	\ttitem{string auth\_challenge} \hfill \\
-		Fixed ASCII string ``{\tt AC}''
-	\ttitem{uint16 length} \hfill \\
-		Length of challenge
-	\ttitem{data challenge} \hfill \\
-		Contents of challenge
+The server reply has one of several possible result codes:
+\begin{description}
+	\ttitem{0x10 R\_CHALLENGE} \hfill \\
+		Server challenge. Payload is a single {\tt data} field with contents of the challenge. The
+		client should react by sending a client response.
+	\ttitem{0x11 R\_SUCCESS} \hfill \\
+		Successful outcome -- the client is now authenticated. This is an empty packet.
+	\ttitem{0x12 R\_SUCCESS\_OPT} \hfill \\
+		Successful outcome, with additional data from the server. The payload is a single {\tt data}
+		field with the server data.
+	\ttitem{0x20 E\_FAILED} \hfill \\
+		Authentication failed. This may indicate that client credentials are invalid, account is
+		disabled or expired, etc. The payload is either empty, or it is a {\tt data} field, containing
+		UTF-8-encoded textual description of the failure.
+	\ttitem{0x21 E\_BAD\_MECHANISM} \hfill \\
+		Client specified an unknown mechanism
+	\ttitem{0x22 E\_BAD\_MESSAGE} \hfill \\
+		Client response is mangled or the mechanism doesn't understand it
+	\ttitem{0xFF E\_SERVFAIL} \hfill \\
+		Internal server error
 \end{description}
-\end{samepage}
 
-\begin{samepage}
-Client response packet format is as follows:
-\begin{description}[parsep=1pt]
-	\ttitem{string auth\_response} \hfill \\
-		Fixed ASCII string ``{\tt AR}''
-	\ttitem{uint16 length} \hfill \\
-		Length of response
-	\ttitem{data response} \hfill \\
-		Contents of response
-\end{description}
-\end{samepage}
-
-At the end of the exchange, server will return an outcome in one of two ways:
-\begin{enumerate}
-
-\begin{samepage}
-\item Outcome of authentication exchange, {\it without} additional data
-\begin{description}[parsep=1pt]
-	\ttitem{string auth\_outcome} \hfill \\
-		Fixed ASCII string ``{\tt AF}'' (for ``Auth Finished'')
-	\ttitem{uint16 length} \hfill \\
-		Length of payload (in this case, 1)
-	\ttitem{byte result} \hfill \\
-		Result code
-\end{description}
-\end{samepage}
-
-\begin{samepage}
-\item Outcome {\it with} additional data
-\begin{description}[parsep=1pt]
-	\ttitem{string auth\_outcome} \hfill \\
-		Fixed ASCII string ``{\tt AD}'' (for ``Auth outcome with Data'')
-	\ttitem{uint16 length} \hfill \\
-		Length of payload
-	\ttitem{byte result} \hfill \\
-		Result code
-	\ttitem{uint16 adata\_len} \hfill \\
-		Length of additional data
-	\ttitem{data adata} \hfill \\
-		Additional data
-\end{description}
-\end{samepage}
-
-\end{enumerate}
-
-TODO define codes for success and failure
+Client response to {\tt R\_CHALLENGE} is a request packet with command code {\tt 0x12 SASL\_RESPONSE} and
+a {\tt data} payload with contents of the response.
 
 %%
 
-\begin{table}[h]
+\begin{table}
 \begin{center}
 
 \def\tline#1#2{ {\ttfamily #1} & {\ttfamily #2} }
@@ -756,26 +714,29 @@ TODO define codes for success and failure
 
 \section{List of commands}
 
-This section describes each command from the core set, its arguments, reply format and possible result codes.
-Table \ref{table:results} describes all core result codes. Codes below {\tt 0x80} indicate success, codes
-{\tt 0x80} and above indicate error.
+This section describes each command from the core set (extension code {\tt 0x00}), its arguments, reply format
+and possible result codes.  Table \ref{table:results} describes all core result codes. Codes below {\tt 0x80}
+indicate success, codes {\tt 0x80} and above indicate error.
 
 Result code {\tt R\_OK} represents generic success, which is appropriate in most cases. Unless other success
 codes can be returned as well, it is not mentioned in the description.
 
-Result codes in the range {\tt 0x80}--{\tt 0x8f} are generic and can be returned by any command. These are not
+Result codes in the range {\tt 0x80}--{\tt 0x8F} are generic and can be returned by any command. These are not
 mentioned in command descriptions, unless there are special concerns.  Result codes {\tt E\_FAIL} and {\tt
 E\_SERVFAIL} indicate exceptional server states that might not be recoverable. The server might close the
 connection after sending these codes. Continuing communication after receiving {\tt E\_SERVFAIL} is unsafe.
 
+Result code {\tt E\_UNSUPPORTED} indicates that the implementation understands the request, but refuses to
+service it. This code can only be returned in situations where behavior is implementation-defined.
+
+\clearpage
+
 \subsection{ASSIGN}
 
-Code: 0x00
-
-Arguments:
-string path
-
-The only argument is the path string, its length is indicated by the {\tt length} field in header.
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Code:] {\tt 0x00}
+	\item[Arguments:] {\tt data path}
+\end{description}
 
 Assigns a new path to a file handle. Performs checks to verify that the path string is valid according to
 section \ref{ssec:paths}, and that it conforms to OS or filesystem limitations. Does not check whether the
@@ -783,91 +744,112 @@ path or any of its components actually exist in the filesystem. Specifically thi
 appears to confirm to filesystem rules, but turns out to be invalid when attempting to access it, calls other
 than {\tt ASSIGN} can return {\tt E\_BADPATH} at a later point.
 
-Result data: none
-
-Specific errors: none
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Result data:] none
+	\item[Specific errors:] none
+\end{description}
 
 \subsection{STAT}
 
-Code: 0x01
-
-Arguments:
-data attributes
-
-The only argument is the set of queried attributes, its length is indicated by the {\tt length} field in
-header.
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Code:] {\tt 0x01}
+	\item[Arguments:] {\tt data attributes}
+\end{description}
 
 Queries information about specified filesystem object. The returned information is a list of fields in the
 order specified by the {\tt attributes} argument. Each attribute may appear only once.
 
-Result data: depends on arguments
 
-Specific errors:
-	E\_BADATTR if an attribute code from the list is unknown or not supported on the platform
-		{\it or} if an attribute is listed more than once
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Result data:] {\it depends on arguments}
+	\item[Specific errors:] \hfill \\
+		\begin{tabular}{lp{10.5cm}}
+			{\tt E\_BADATTR} &
+				Attribute code from the list is unknown or not supported on the platform,
+				or an attribute is listed more than once \\
+		\end{tabular}
+\end{description}
 
 \subsection{SETATTR}
 
-Code: 0x02
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Code:] {\tt 0x02}
+	\item[Arguments:] \hfill \\
+		\begin{tabular}{lll}
+			\pkfield{byte}{attribute}{}
+			\pkfield{data}{value}{}
+		\end{tabular}
+\end{description}
 
-Arguments:
-byte attribute
-<any> value
+Attempts to set an attribute {\tt attribute} to a new value {\tt value}. Size of {\tt value} depends on the
+attribute specified.
 
-Attempts to set an attribute {\tt attribute} to a new value {\tt value}.
-
-Result data: none
-
-Specific errors:
-	E\_BADATTR if the attribute code is unknown or not supported on the platform
-	E\_CANNOTSET if the attribute is not writable
-	E\_BADVALUE if the attribute is writable, but the specified value cannot be set
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Result data:] none
+	\item[Specific errors:] \hfill \\
+		\begin{tabular}{lp{10.5cm}}
+			{\tt E\_BADATTR} & Attribute code is unknown or unsupported on the platform \\
+			{\tt E\_CANNOTSET} & Attribute is not writable \\
+			{\tt E\_BADVALUE} & Specified value cannot be set \\
+		\end{tabular}
+\end{description}
 
 \subsection{STATVFS}
 
-Code: 0x03
-
-Arguments: none
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Code:] {\tt 0x03}
+	\item[Arguments:] none
+\end{description}
 
 Queries filesystem information for the given path.
 
-Result data:
-uint32 device\_id // corresponds to the device\_id attribute
-uint64 capacity // total filesystem size
-uint64 free\_space // free space available
-byte writable // 0x00 - read-only; 0x01 - writable
-
-Specific errors: none
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Result data:] \hfill \\
+		\begin{tabular}{lll}
+			\pkfield{uint32}{device\_id}{Corresponds to the {\tt device\_id} attribute}
+			\pkfield{uint64}{capacity}{Total filesystem size}
+			\pkfield{uint64}{free\_space}{Free space available}
+		\end{tabular}
+	\item[Specific errors:] none
+\end{description}
 
 \subsection{READ}
 
-Code: 0x10
-
-Arguments:
-uint64 offset
-uint16 read\_len
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Code:] {\tt 0x10}
+	\item[Arguments:] \hfill \\
+		\begin{tabular}{lll}
+			\pkfield{uint64}{offset}{}
+			\pkfield{uint16}{read\_len}{}
+		\end{tabular}
+\end{description}
 
 Reads {\tt read\_len} bytes from file, starting at {\tt offset}. Returns exactly {\tt read\_len} bytes of
 data, unless it encounters end of file or unless an error occurs. In case of error, returns data successfully
 read before the error occured. If {\tt offset} points beyond end of file, returns success and zero-length
 data.
 
-Result data:
-data data\_read
-
-Specific errors:
-	E\_BADOFFSET if the offset is not acceptable
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Result data:] {\tt data data\_read}
+	\item[Specific errors:] \hfill \\
+		\begin{tabular}{lp{10.5cm}}
+			{\tt E\_BADOFFSET} & Offset is not acceptable \\
+		\end{tabular}
+\end{description}
 
 \subsection{WRITE}
 \label{ssec:WRITE}
 
-Code: 0x11
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Code:] {\tt 0x11}
+	\item[Arguments:] \hfill \\
+		\begin{tabular}{lll}
+			\pkfield{uint64}{offset}{}
+			\pkfield{data}{write\_data}{}
+		\end{tabular}
+\end{description}
 
-Arguments:
-uint64 offset
-data write\_data
-
-Length of {\tt write\_data}, further refered to as {\tt write\_len}, is calculated as $({\tt length} - 8)$.
+Length of {\tt write\_data}, calculated as remaining space in the packet, will be refered to as {\tt write\_len}.
 
 Writes {\tt write\_len} bytes of data to a file, starting at {\tt offset}. Returns number of bytes written. On
 success, this will be exactly {\tt write\_len}. On error, it might be a smaller number.
@@ -877,95 +859,112 @@ for writing but does not write any data. This can be used to create an empty fil
 
 If the offset points beyond end of file, the command will attempt to transparently extend the file. This will
 succeed if the filesystem supports sparse files. If not, the implementation can either extend the file by
-appending null bytes until it reaches the offset, or return {\tt E\_BADOFFSET}. The implementation might
-impose an arbitraty limit on how far the offset can be from the end of the file before {\tt E\_BADOFFSET} is
+appending null bytes until it reaches the offset, or return {\tt E\_UNSUPPORTED}. The implementation might
+impose an arbitraty limit on how far the offset can be from the end of the file before {\tt E\_UNSUPPORTED} is
 returned. If a size limit is reached or all disk space consumed while extending the file, the implementation
-should return the appropriate error code and attempt to return the file to its previous state.
+should return the appropriate error code and attempt to restore the file to its previous state.
 
-Result data:
-uint16 bytes\_written
-
-Specific errors:
-	E\_BADOFFSET if the offset is not acceptable
-	E\_TOOBIG the file size has reached a filesystem or operating system limit
-	E\_DEVFULL no space left on device
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Result data:] {\tt uint16 bytes\_written}
+	\item[Specific errors:] \hfill \\
+		\begin{tabular}{lp{10.5cm}}
+			{\tt E\_BADOFFSET} & Offset is not acceptable \\
+			{\tt E\_TOOBIG} & File size reached a filesystem or operating system limit \\
+			{\tt E\_DEVFULL} & No space left on device
+		\end{tabular}
+\end{description}
 
 \subsection{TRUNCATE}
 
-Code: 0x12
-
-Arguments:
-uint64 size
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Code:] {\tt 0x12}
+	\item[Arguments:] {\tt uint64 size}
+\end{description}
 
 Sets file size to specified value. If the file was larger than {\tt size}, its contents are truncated. If the
-file was smaller than {\tt size}, the discussion from~\ref{ssec:WRITE} applies. Essentialy, when enlarging
+file was smaller than {\tt size}, the discussion from~\ref{ssec:WRITE} applies: essentialy, when enlarging
 a small file, results of {\tt TRUNCATE} and {\tt WRITE} with zero {\tt write\_len} are the same.
 
 Does not implicitly create the file, may return {\tt E\_NOTFOUND} if the file does not exist.
 
-Result data: none
-
-Specific errors:
-	E\_BADOFFSET if the offset is not acceptable
-	E\_TOOBIG the file size has reached a filesystem or operating system limit
-	E\_DEVFULL no space left on device
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Result data:] none
+	\item[Specific errors:] \hfill \\
+		\begin{tabular}{lp{10.5cm}}
+			{\tt E\_BADOFFSET} & Offset is not acceptable \\
+			{\tt E\_TOOBIG} & File size reached a filesystem or operating system limit \\
+			{\tt E\_DEVFULL} & No space left on device
+		\end{tabular}
+\end{description}
 
 \subsection{DELETE}
 
-Code: 0x20
-
-Arguments: none
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Code:] {\tt 0x20}
+	\item[Arguments:] none
+\end{description}
 
 Deletes a file or an empty directory.
 
-Result data: none
-
-Specific errors:
-	E\_NOTEMPTY if attempting to delete a directory that is not empty
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Result data:] none
+	\item[Specific errors:] \hfill \\
+		\begin{tabular}{lp{10.5cm}}
+			{\tt E\_NOTEMPTY} & Attempting to delete a non-empty directory \\
+		\end{tabular}
+\end{description}
 
 \subsection{RENAME}
 
-Code: 0x21
-
-Arguments:
-string newpath
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Code:] {\tt 0x21}
+	\item[Arguments:] {\tt data newpath}
+\end{description}
 
 Renames or moves a filesystem object so that its new path is {\tt newpath}. The new path must be in the same
 filesystem tree. If moving a directory, the new path must not be inside the directory.
 
-If the new path exists and is a file, and the file handle points to a file, the file at {\tt newpath} is
+If the new path exists and is a file, and the file handle also points to a file, the file at {\tt newpath} is
 overwritten.
 
 If the operation succeeds, the file handle is updated with the new path.
 
 Result data: none
 
-Specific errors:
-	E\_BADPATH if the file handle path, {\it or} the new path, is not acceptable
-	E\_BADMOVE if the move tries to make a directory loop (i.e., make a directory a subdirectory of itself)
-		{\it or} if the new path exists and is a directory
-		{\it or} if the new path exists and is a file, but file handle refers to a directory
-		{\it or} if a component in the new path is not a directory
-	E\_CROSSDEV if the move crosses filesystem boundaries
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Result data:] none
+	\item[Specific errors:] \hfill \\
+		\begin{tabular}{lp{10.5cm}}
+			{\tt E\_BADPATH} & File handle path or the new path is not acceptable \\
+			{\tt E\_BADMOVE} & Moving directory into itself, or new path exists but one of the
+				paths is not a file \\
+			{\tt E\_CROSSDEV} & Move would cross filesystem boundaries \\
+		\end{tabular}
+\end{description}
 
 \subsection{MAKEDIR}
 
-Code: 0x22
-
-Arguments: none
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Code:] {\tt 0x22}
+	\item[Arguments:] none
+\end{description}
 
 Creates a directory. Fails if the directory already exists.
 
-Result data: none
-
-Specific errors:
-	E\_EXISTS if the directory already exists
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Result data:] none
+	\item[Specific errors:] \hfill \\
+		\begin{tabular}{lp{10.5cm}}
+			{\tt E\_EXIST} & Directory already exists \\
+		\end{tabular}
+\end{description}
 
 \subsection{REWINDDIR}
 
-Code: 0x30
-
-Arguments: none
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Code:] {\tt 0x30}
+	\item[Arguments:] none
+\end{description}
 
 Prepares directory for reading.
 
@@ -975,21 +974,28 @@ When {\tt REWINDDIR} is called on more directories than that, the first one lose
 status in favor of the last one, etc. It is recommended that the client always completes directory listing of
 one directory before moving on to another.
 
-Result data: none
-
-Specific errors: none
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Result data:] none
+	\item[Specific errors:] none
+\end{description}
 
 \subsection{READDIR}
 
-Code: 0x31
-
-Arguments:
-data attributes
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Code:] {\tt 0x31}
+	\item[Arguments:] {\tt data attributes}
+\end{description}
 
 Reads as many directory entries as possible and returns them as names and the specified set of attributes.
-Each attribute may be specified only once. Does not return {\tt R\_OK}: returns {\tt R\_CONTINUED} if there
-are more items to be read, or {\tt R\_FINISHED} if no items remain. Every success packet, including the final
-{\tt R\_FINISHED}, contains at least one directory entry.
+Each attribute may be specified only once. Does not return {\tt R\_OK}: returns either {\tt R\_CONTINUED} if
+there are more items to be read, or {\tt R\_FINISHED} if no items remain. Every success packet, including the
+final {\tt R\_FINISHED}, contains at least one directory entry.
+
+Each entry is stored in the following format:
+\beginpk
+	\pkfield{string}{name}{}
+	\pkfield{string}{attributes}{}
+\endpk
 
 If the command is interrupted by an error, result data will still contain the entries that were successfully
 read. It is undefined whether ``prepared for reading'' state is lost on error.
@@ -998,18 +1004,18 @@ To obtain full directory listing, client must first call {\tt REWINDDIR} and the
 READDIR} until it encounters {\tt R\_FINISHED} result code. At that point, ``prepared for reading'' state is
 lost and subsequent reads will return {\tt E\_READDIR}.
 
-Result data:
-uint16 entries
-(repeated (entries) times:
-	uint16 name\_len
-	string name
-	<any> fields per the attributes argument
-)
-
-Specific errors:
-	E\_BADATTR if an attribute code from the list is unknown or not supported on the platform
-		{\it or} if an attribute is listed more than once
-	E\_READDIR if the directory is not prepared for reading
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Result data:] \hfill \\
+		\begin{tabular}{lll}
+			\pkfield{uint16}{num\_entries}{Number of entries}
+			\pkfield{data}{entries}{Sequence of entries}
+		\end{tabular}
+	\item[Specific errors:] \hfill \\
+		\begin{tabular}{lp{10.5cm}}
+			{\tt E\_BADATTR} & Attribute code from the list is unknown or not supported on the platform \\
+			{\tt E\_READDIR} & Directory is not prepared for reading \\
+		\end{tabular}
+\end{description}
 
 %%
 
