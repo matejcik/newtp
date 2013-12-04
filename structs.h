@@ -69,8 +69,6 @@ struct dir_entry {
 	char *   attr;
 };
 
-#define MAX_OPENDIRS 5
-
 #include "struct_helpers.h"
 
 #endif
