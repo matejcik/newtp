@@ -40,8 +40,7 @@
 #define ERR_NOTFILE		0x8A // File operation attempted on directory
 /* attribute errors */
 #define ERR_BADATTR		0x90 // Unsupported attribute code
-#define ERR_CANNOTSET		0x91 // Specified attribute is not writable
-#define ERR_BADVALUE		0x92 // Specified attribute value is not acceptable
+#define ERR_BADVALUE		0x91 // Specified attribute value is not acceptable
 /* file size errors */
 #define ERR_BADOFFSET		0xA0 // Read or write offset is not acceptable
 #define ERR_TOOBIG		0xA1 // File size limit reached

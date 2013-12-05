@@ -676,8 +676,7 @@ SASL\_RESPONSE} and a {\tt data} payload with contents of the response.
 	\hline
 
 	\tline{0x90}{E\_BADATTR} & Unsupported attribute code \\
-	\tline{0x91}{E\_CANNOTSET} & Specified attribute is not writable \\
-	\tline{0x92}{E\_BADVALUE} & Specified attribute value is not acceptable \\
+	\tline{0x91}{E\_BADVALUE} & Specified attribute value is not acceptable \\
 
 	\hline
 
@@ -788,8 +787,8 @@ attribute specified.
 	\item[Result data:] none
 	\item[Specific errors:] \hfill \\
 		\begin{tabular}{lp{10.5cm}}
-			{\tt E\_BADATTR} & Attribute code is unknown or unsupported on the platform \\
-			{\tt E\_CANNOTSET} & Attribute is not writable \\
+			{\tt E\_BADATTR} & Attribute code is unknown, unsupported on the platform, \newline
+				or not writable. \\
 			{\tt E\_BADVALUE} & Specified value cannot be set \\
 		\end{tabular}
 \end{description}
