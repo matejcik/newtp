@@ -2,6 +2,7 @@
 #define COMMON_H__
 
 #include <sys/types.h>
+#include <sys/stat.h>
 #include "structs.h"
 
 
@@ -16,7 +17,13 @@ uint64_t ntohll (uint64_t);
 int pack (char * const, char const *, ...);
 int unpack (char const * const, int, char const *, ...);
 
+/* time_t value converters */
+#define newtp_timespec_to_time(ts) ((ts).tv_sec * 1000000 + ((ts).tv_nsec / 1000))
+void newtp_time_to_timespec (struct timespec *ts, uint64_t ntime);
+
+/* helper function that wraps a socket in a globally shared GnuTLS session */
 void newtp_gnutls_init (int socket, int flag);
+/* safely disconnects TLS */
 void newtp_gnutls_disconnect (int bye);
 
 /* send()/recv() wrappers that don't return until the whole

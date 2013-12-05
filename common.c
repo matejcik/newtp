@@ -1,6 +1,7 @@
 #include <arpa/inet.h>
 #include <assert.h>
 #include <errno.h>
+#include <limits.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
@@ -168,6 +169,16 @@ int unpack (char const * const buffer, int available, char const * format, ...)
 	va_end(ap);
 
 	return buf - buffer;
+}
+
+void newtp_time_to_timespec (struct timespec *ts, uint64_t ntime)
+{
+	/* ntime is in microseconds */
+	long long sec  = ntime / 1000000;
+	long long nsec = (ntime - (sec * 1000000)) * 1000;
+	assert(nsec < LONG_MAX);
+	ts->tv_sec  = sec;
+	ts->tv_nsec = nsec;
 }
 
 /****** gnutls initialization and handling ******/

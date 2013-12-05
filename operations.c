@@ -7,11 +7,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
-/*#include <sys/socket.h>*/
 #include <sys/stat.h>
 #include <unistd.h>
-
-/*#include <arpa/inet.h>*/
 
 #include "commands.h"
 #include "common.h"
@@ -141,17 +138,17 @@ int fill_stat (char const * path, int writable, char * attributes, char const * 
 				break;
 
 			case ATTR_ATIME:
-				bigvalue = st.st_atim.tv_sec * 1000000 + (st.st_atim.tv_nsec / 1000);
+				bigvalue = newtp_timespec_to_time(st.st_atim);
 				attributes += pack(attributes, "l", bigvalue);
 				break;
 
 			case ATTR_MTIME:
-				bigvalue = st.st_mtim.tv_sec * 1000000 + (st.st_mtim.tv_nsec / 1000);
+				bigvalue = newtp_timespec_to_time(st.st_mtim);
 				attributes += pack(attributes, "l", bigvalue);
 				break;
 
 			case ATTR_CTIME:
-				bigvalue = st.st_ctim.tv_sec * 1000000 + (st.st_ctim.tv_nsec / 1000);
+				bigvalue = newtp_timespec_to_time(st.st_ctim);
 				attributes += pack(attributes, "l", bigvalue);
 				break;
 
@@ -433,6 +430,40 @@ int cmd_STAT (struct command * cmd, char * payload, char * response)
 	}
 
 	return REPLY(STAT_OK, attr_len);
+}
+
+int cmd_SETATTR (struct command * cmd, char * payload, char * response)
+{
+/*	struct handle * h;
+	uint8_t attr;
+	uint8_t byte;
+	uint16_t uint16;
+	uint32_t uint32;
+	uint64_t uint64;
+	VALIDATE_HANDLE(h);
+
+
+	logp("CMD_SETATTR %d (%s): attr 0x%02x",  cmd->handle, h->path);
+
+	attr_len = calculate_attr_len(payload, cmd->length);
+	if (attr_len < 0) {
+		log("invalid attribute string");
+		return REPLY(ERR_BADATTR, 0);
+	}
+
+	if (fill_stat(h->path, h->writable, response + SIZEOF_reply(), payload, cmd->length) == -1) {
+		switch (errno) {
+			case EACCES:       return REPLY(ERR_DENIED, 0);
+			case ELOOP:        return REPLY(ERR_NOTFOUND, 0);
+			case ENAMETOOLONG: return REPLY(ERR_BADPATH, 0);
+			case ENOENT:       return REPLY(ERR_NOTFOUND, 0);
+			case ENOTDIR:      return REPLY(ERR_NOTFOUND, 0);
+			case EOVERFLOW:    return REPLY(ERR_SERVFAIL, 0);
+			default:           return REPLY(ERR_FAIL, 0);
+		}
+	}
+
+	return REPLY(STAT_OK, attr_len);*/ return -1;
 }
 
 int cmd_READ (struct command * cmd, char * payload, char * response)

@@ -144,16 +144,6 @@ uint16_t get_handle (char const * path) {
 
 /**** value converters ****/
 
-void newtp_time_to_timespec (struct timespec *ts, uint64_t ntime)
-{
-	/* ntime is in microseconds */
-	long long sec  = ntime / 1000000;
-	long long nsec = (ntime - (sec * 1000000)) * 1000;
-	assert(nsec < LONG_MAX);
-	ts->tv_sec  = sec;
-	ts->tv_nsec = nsec;
-}
-
 void newtp_attr_to_stat (struct stat * st, char * attrs)
 {
 	uint64_t size, ctime, mtime, atime;
