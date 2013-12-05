@@ -16,3 +16,6 @@ old
 *.ps
 *.toc
 scratch
+newtp-source
+*.tar.bz2
+tex/bibtex-sources
