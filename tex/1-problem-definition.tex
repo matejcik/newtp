@@ -109,6 +109,14 @@ still worse than a pure binary one, both in size and processing time. This is du
 self-describing format must carry additional information about itself, and that this information must be
 processed before data is extracted.
 
+Self-describing formats are necessarily complex, in order to be able to express full variability and
+complexity of arbitrary data. This is especially relevant when designing Internet protocols, because due to
+the complexity, it is difficult to maintain correctness of parser implementations. These present a very large
+attack surface and a popular target for malicious actors. For example, after more than 20 years of
+development, new ASN.1-related vulnerabilities still regularly pop up in popular software. At the time of this
+writing, the CVE database recognizes 58 vulnerabilities related to ASN.1, registered in years 2002 through
+2013.~\cite{asn-vuln}
+
 \subsection{Roles}
 
 We recognize two basic roles for communicating parties: {\it client} and {\it server}. Client is the party
