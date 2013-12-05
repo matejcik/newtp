@@ -256,9 +256,9 @@ on-server copy operation, otherwise the client would need to download and reuplo
 There are two reasons for the client to be interested in the server's filesystem configuration: free space
 information, and knowledge about filesystem boundaries. Exposing this information is particularly complicated
 on UNIX-like systems, where it is common to use arbitrary directories as mount points for different
-filesystems. One possible solution is having a "statvfs"\cite{statvfs} operation that returns filesystem
-information for particular file or directory. It would then be the client's responsibility to use this
-operation whenever necessary. Another possibility is to make filesystem information part of directory listing.
+filesystems. One possible solution is having a ``statfs'' operation that returns filesystem information for
+particular file or directory. It would then be the client's responsibility to use this operation whenever
+necessary. Another possibility is to make filesystem information part of directory listing.
 
 \subsection{Metadata}
 

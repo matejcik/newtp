@@ -62,7 +62,8 @@ cacheability of requests, and due to this property, it is simple to build load b
 networks for HTTP servers. Although less common today, proxy servers can be placed on LANs as transparent
 local caches for clients retrieving the same data.
 
-RFC~2069~\cite{rfc2069} specifies a simplistic authentication model based on username/password combinations.
+HTTP specification allows a simplistic authentication model based on username/password combinations.
+RFC~2069~\cite{rfc2069} improves upon this model by introducing digest-based authentication.
 RFC~2818~\cite{rfc2818} describes how to use the protocol with TLS, which is commonly known as HTTPS.
 
 \subsection{WebDAV}
@@ -109,6 +110,8 @@ the complexity, it not so well suited for simpler file transfer tasks, and it is
 a separate protocol outside its environment.
 
 \section{NFS}
+
+Network File System 
 
 TODO
 

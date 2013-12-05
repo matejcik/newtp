@@ -276,8 +276,8 @@ to handle potential UTF-8 decoding errors.
 This encoding scheme does not cover all cases. Notably, in some encodings, bytes {\tt 0x00} through {\tt 0x7F}
 can be parts of undecodable sequences. These are not supported for security reasons: it might be possible to
 ``smuggle in'' ASCII sequences such as `{\tt /..}', thus opening a new attack surface that must be checked by
-implementations. See PEP~383~\cite{pep383} for full discussion. In NewTP, such bytes are instead to be
-replaced by the Unicode replacement character {\tt U+FFFD}.
+implementations. See PEP~383 for full discussion. In NewTP, such bytes are instead to be replaced by the
+Unicode replacement character {\tt U+FFFD}.
 
 Also note that certain encodings, such as Big5, cannot be roundtrip-safely decoded to Unicode, because
 multiple byte sequences map to the same Unicode codepoint. These are not supported by the core protocol.
