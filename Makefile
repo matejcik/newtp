@@ -4,9 +4,14 @@ GNUTLS_LIBS   = `pkg-config --libs gnutls`
 FUSE_CFLAGS = `pkg-config --cflags fuse`
 FUSE_LIBS   = `pkg-config --libs fuse`
 
+GSASL_CFLAGS = `pkg-config --cflags libgsasl`
+GSASL_LIBS = `pkg-config --libs libgsasl`
+
+COMMON_LIBS = $(GSASL_LIBS) $(GNUTLS_LIBS)
+
 CFLAGS = -std=c99 -D_POSIX_C_SOURCE=200809L -O0 -g \
 	-Wall -Werror -pedantic \
-	$(GNUTLS_CFLAGS) $(FUSE_CFLAGS)
+	$(GNUTLS_CFLAGS) $(FUSE_CFLAGS) $(GSASL_CFLAGS)
 
 CC = gcc
 
@@ -25,13 +30,13 @@ struct_helpers.h: structs.h make_struct_helpers.py
 struct_helpers.c: struct_helpers.h
 
 server:	$(SRVOBJS)
-	$(CC) $(CFLAGS) $(GNUTLS_LIBS) $^ -o $@
+	$(CC) $(CFLAGS) $(COMMON_LIBS) $^ -o $@
 
 client: $(CLIOBJS)
-	$(CC) $(CFLAGS) $(GNUTLS_LIBS) $^ -o $@
+	$(CC) $(CFLAGS) $(COMMON_LIBS) $^ -o $@
 
 newfs:  $(FSOBJS)
-	$(CC) $(CFLAGS) $(GNUTLS_LIBS) $(FUSE_LIBS) $^ -o $@
+	$(CC) $(CFLAGS) $(COMMON_LIBS) $(FUSE_LIBS) $^ -o $@
 
 -include $(OBJS:.o=.d)
 

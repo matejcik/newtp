@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <errno.h>
+#include <locale.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <signal.h>
@@ -11,6 +12,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <gsasl.h>
 #include <gnutls/gnutls.h>
 
 #include "commands.h"
@@ -36,6 +38,9 @@ int socknum = 0;
 int child = 0;
 int childsock;
 
+char * SASL_password = NULL;
+Gsasl * SASL_context = NULL;
+
 char * inbuf;
 char * outbuf;
 
@@ -51,6 +56,7 @@ void at_exit ()
 {
 	if (child) close(childsock);
 	else close_server_sockets();
+	if (SASL_context) gsasl_done(SASL_context);
 }
 
 void sighandler (int signal)
@@ -85,7 +91,7 @@ void do_work ()
 		switch (cmd.command) {
 			HANDLE_CMD(ASSIGN)
 			HANDLE_CMD(STAT)
-			//HANDLE_CMD(SETATTR)
+			HANDLE_CMD(SETATTR)
 			//HANDLE_CMD(STATVFS)
 			HANDLE_CMD(READ)
 			HANDLE_CMD(WRITE)
@@ -112,6 +118,139 @@ void do_work ()
 			safe_send_full(outbuf, len);
 		}
 	}
+}
+
+void do_sasl_auth ()
+{
+	Gsasl_session * session = NULL;
+	char * mechanism, * response = NULL, * output = NULL;
+	uint16_t mech_len = 0, resp_len = 0;
+	size_t output_len = 0;
+	struct command cmd;
+	int res, err, ext = EXT_INIT;
+
+	safe_recv_full(inbuf, SIZEOF_command());
+	unpack_command(inbuf, SIZEOF_command(), &cmd);
+	if (cmd.length) safe_recv_full(inbuf, cmd.length);
+	if (cmd.extension != EXT_INIT || (cmd.command != SASL_START && cmd.command != SASL_START_OPT)) {
+		err = SASL_E_FAILED;
+		goto fail;
+	}
+
+	if (cmd.command == SASL_START) {
+		inbuf[cmd.length] = 0;
+		mechanism = inbuf;
+	} else {
+		res = unpack(inbuf, cmd.length, "sBsB", &mech_len, &mechanism, &resp_len, &response);
+		if (res < 0) {
+			ext = 0; err = ERR_BADPACKET;
+			goto fail;
+		}
+	}
+
+	logp("client uses mechanism '%s'", mechanism);
+	if (SASL_password && !strcmp(mechanism, "ANONYMOUS")) {
+		err = SASL_E_BAD_MECHANISM;
+		err("but anonymous login is forbidden");
+		goto fail;
+	}
+	
+	res = gsasl_server_start(SASL_context, mechanism, &session);
+	if (mechanism != inbuf) free(mechanism);
+	
+
+	if (res != GSASL_OK) {
+		if (res == GSASL_UNKNOWN_MECHANISM) err = SASL_E_BAD_MECHANISM;
+		else err = ERR_SERVFAIL;
+		goto fail;
+	}
+
+	if (SASL_password) {
+		gsasl_property_set(session, GSASL_AUTHID, SASL_password);
+		gsasl_property_set(session, GSASL_PASSWORD, SASL_password);
+		gsasl_property_set(session, GSASL_SERVICE, "newtp");
+		gsasl_property_set(session, GSASL_HOSTNAME, "localhost");
+	}
+
+	/* start the session (response might be NULL) */
+	res = gsasl_step(session, response, resp_len, &output, &output_len);
+	free(response);
+	while (res == GSASL_NEEDS_MORE) {
+		pack_reply_p(outbuf, cmd.request_id, EXT_INIT, SASL_R_CHALLENGE, (uint16_t)output_len);
+		memcpy(outbuf + SIZEOF_reply(), output, output_len);
+		safe_send_full(outbuf, SIZEOF_reply() + output_len);
+		free(output);
+
+		safe_recv_full(inbuf, SIZEOF_command());
+		unpack_command(inbuf, SIZEOF_command(), &cmd);
+		if (cmd.length) safe_recv_full(inbuf, cmd.length);
+		if (cmd.extension != EXT_INIT || cmd.command != SASL_RESPONSE) {
+			err = SASL_E_FAILED;
+			goto fail;
+		}
+
+		res = gsasl_step(session, inbuf, cmd.length, &output, &output_len);
+	}
+
+	if (res == GSASL_OK) {
+		pack_reply_p(outbuf, cmd.request_id, EXT_INIT, SASL_R_SUCCESS_OPT, (uint16_t)output_len);
+		memcpy(outbuf + SIZEOF_reply(), output, output_len);
+		safe_send_full(outbuf, SIZEOF_reply() + output_len);
+		free(output);
+		gsasl_finish(session);
+		log("SASL authentication succeeded");
+		return;
+	}
+
+	if (res == GSASL_SASLPREP_ERROR || res == GSASL_UNICODE_NORMALIZATION_ERROR ||
+	    res == GSASL_MECHANISM_PARSE_ERROR || res == GSASL_INTEGRITY_ERROR)
+		err = SASL_E_BAD_MESSAGE;
+	else if (res == GSASL_AUTHENTICATION_ERROR)
+		err = SASL_E_FAILED;
+	else
+		err = ERR_SERVFAIL;
+	/* proceed to fail */
+fail:
+	errp("SASL authentication failed (0x%02x)", err);
+	if (session) gsasl_finish(session);
+	pack_reply_p(outbuf, cmd.request_id, ext, err, 0);
+	safe_send_full(outbuf, SIZEOF_reply());
+	newtp_gnutls_disconnect(1);
+	exit(4);
+}
+
+char * sasl_mechanisms ()
+{
+	char * mechanisms = NULL;
+	char * anon = 0;
+	if (!SASL_password) {
+		log("using the ANONYMOUS mechanism");
+		mechanisms = xmalloc(strlen("ANONYMOUS") + 1);
+		strcpy(mechanisms, "ANONYMOUS");
+		return mechanisms;
+	}
+	gsasl_server_mechlist(SASL_context, &mechanisms);
+	if (!mechanisms) {
+		err("failed to list mechanisms");
+		return NULL;
+	} else {
+		anon = strstr(mechanisms, "ANONYMOUS");
+		if (anon) {
+			int a = strlen("ANONYMOUS");
+			while (anon[a]) {
+				anon[0] = anon[a];
+				anon++;
+			}
+		}
+		logp("using the following mechanisms: %s", mechanisms);
+		return mechanisms;
+	}
+}
+
+int sasl_callback (Gsasl * ctx, Gsasl_session * sctx, Gsasl_property prop)
+{
+	if (prop == GSASL_VALIDATE_ANONYMOUS) return GSASL_OK;
+	return GSASL_NO_CALLBACK;
 }
 
 void do_session_init()
@@ -145,23 +284,19 @@ void do_session_init()
 	intro.max_opendirs = MAX_OPENDIRS;
 	intro.platform_len = 5;
 	intro.platform = "posix";
-	intro.authstr_len = 0;
-	intro.authstr = NULL;
+	intro.authstr = sasl_mechanisms();
+	intro.authstr_len = intro.authstr ? strlen(intro.authstr) : 0;
 	intro.num_extensions = 0;
 
 	length  = pack(outbuf, "5Bs", "NewTP", (uint16_t)1);
 	length += pack_reply_p(outbuf + length, cmd.request_id, EXT_INIT, R_OK, SIZEOF_intro(&intro));
 	length += pack_intro(outbuf + length, &intro);
 	assert(length == 7 + SIZEOF_reply() + SIZEOF_intro(&intro));
+	free(intro.authstr);
 
 	safe_send_full(outbuf, length);
 
 	log("session initialized");
-}
-
-void do_sasl_auth ()
-{
-	/* do nothing now */
 }
 
 void fork_client (int client)
@@ -200,6 +335,8 @@ int main (int argc, char ** argv)
 	int sock, s, err, max = -1;
 	fd_set set;
 
+	setlocale(LC_ALL, "");
+
 	atexit(&at_exit);
 	signal(SIGINT, sighandler);
 	signal(SIGTERM, sighandler);
@@ -207,7 +344,7 @@ int main (int argc, char ** argv)
 
 	/* process command line arguments */
 	if (argc < 2) {
-		printf("usage: %s <shares>\n", argv[0]);
+		printf("usage: %s [-p password] <shares>\n", argv[0]);
 		printf("shares can be specified as follows:\n");
 		printf("/path/to/share=name - this share is read-only\n");
 		printf("-ro /path/to/share=name - this is also read-only\n");
@@ -232,6 +369,15 @@ int main (int argc, char ** argv)
 				printf("missing share name for -rw\n");
 				exit(1);
 			}
+		} else if (!strcmp("-p", argv[i])) {
+			if (argc > i + 1) {
+				SASL_password = argv[i+1];
+				i++;
+				continue;
+			} else {
+				printf("-p specified but no password supplied\n");
+				exit(1);
+			}
 		} else {
 			path = argv[i];
 		}
@@ -252,6 +398,26 @@ int main (int argc, char ** argv)
 		if (!share_add(name, path, writable)) {
 			printf("failed to add '%s' under name '%s'\n", path, name);
 		}
+	}
+
+	/* set up Gsasl context */
+	if ((err = gsasl_init(&SASL_context)) != GSASL_OK) {
+		printf("failed to initialize SASL (%d): %s\n",
+			err, gsasl_strerror(err));
+		return 1;
+	}
+	gsasl_callback_set(SASL_context, sasl_callback);
+
+	if (!SASL_password) {
+		if (!gsasl_server_support_p(SASL_context, "ANONYMOUS")) {
+			printf("SASL does not support ANONYMOUS mechanism\n");
+			return 2;
+		}
+		printf("Note: running in ANONYMOUS mode\n");
+	} else if (!gsasl_server_support_p(SASL_context, "PLAIN") &&
+		   !gsasl_server_support_p(SASL_context, "SCRAM-SHA-1")) {
+		printf("SASL does not support suitable password-based mode\n");
+		return 2;
 	}
 
 	/* first, load up address structs with getaddrinfo(): */

@@ -3,6 +3,7 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "clientops.h"
 #include "commands.h"
@@ -404,6 +405,58 @@ int newtp_rename (char const * path, char const * newpath)
 	return 0;
 }
 
+int newtp_utimens (char const * path, struct timespec const ts[2])
+{
+	struct reply reply;
+	int handle = get_handle(path);
+	uint64_t atime = newtp_timespec_to_time(ts[0]);
+	uint64_t mtime = newtp_timespec_to_time(ts[1]);
+	struct timespec now;
+	clock_gettime(CLOCK_REALTIME, &now);
+
+	if (ts[0].tv_nsec == UTIME_NOW) atime = newtp_timespec_to_time(now);
+	if (ts[1].tv_nsec == UTIME_NOW) mtime = newtp_timespec_to_time(now);
+
+	if (ts[0].tv_nsec != UTIME_OMIT) {
+		pack(data_out, "cl", (uint8_t)ATTR_ATIME, atime);
+		reply_for_command(0, CMD_SETATTR, handle, 9, &reply);
+		MAYBE_RET;
+	}
+	if (ts[1].tv_nsec != UTIME_OMIT) {
+		pack(data_out, "cl", (uint8_t)ATTR_MTIME, mtime);
+		reply_for_command(0, CMD_SETATTR, handle, 9, &reply);
+		MAYBE_RET;
+	}
+
+	return 0;
+}
+
+int newtp_chown (char const * path, uid_t uid, gid_t gid)
+{
+	struct reply reply;
+	int handle = get_handle(path);
+	if (uid > -1) {
+		pack(data_out, "ci", (uint8_t)ATTR_UID, (uint32_t)uid);
+		reply_for_command(0, CMD_SETATTR, handle, 5, &reply);
+		MAYBE_RET;
+	}
+	if (gid > -1) {
+		pack(data_out, "ci", (uint8_t)ATTR_GID, (uint32_t)gid);
+		reply_for_command(0, CMD_SETATTR, handle, 5, &reply);
+		MAYBE_RET;
+	}
+	return 0;
+}
+
+int newtp_chmod (char const * path, mode_t mode)
+{
+	struct reply reply;
+	int handle = get_handle(path);
+	pack(data_out, "cs", (uint8_t)ATTR_PERMS, (uint16_t)(mode & 0x0fff));
+	reply_for_command(0, CMD_SETATTR, handle, 3, &reply);
+	return newtp_result_to_errno(reply.result);
+}
+
 
 static struct fuse_operations newtp_oper = {
 	.getattr    = newtp_getattr,
@@ -420,6 +473,9 @@ static struct fuse_operations newtp_oper = {
 	.rmdir      = newtp_unlink,
 	.mkdir      = newtp_mkdir,
 	.rename     = newtp_rename,
+	.utimens    = newtp_utimens,
+	.chmod      = newtp_chmod,
+	.chown      = newtp_chown,
 };
 
 /*
