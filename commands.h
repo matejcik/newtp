@@ -15,7 +15,7 @@
 /* directory manipulation */
 #define CMD_DELETE	0x20
 #define CMD_RENAME	0x21
-#define CMD_MKDIR	0x22
+#define CMD_MAKEDIR	0x22
 /* directory listing */
 #define CMD_REWINDDIR	0x30
 #define CMD_READDIR	0x31

@@ -74,6 +74,40 @@ unsigned long djb2 (char const * str)
 	return hash;
 }
 
+
+void replace_handle (uint16_t slot, char const * newpath, int len)
+{
+	unsigned long hash = djb2(newpath) % HASH_MODULE;
+	hash_bucket * bucket;
+
+	/* is the slot occupied? */
+	if (conn.handles[slot]) {
+		/* destroy it */
+		conn.handles_open[slot] = 0;
+		unsigned long h2 = djb2(conn.handles[slot]) % HASH_MODULE;
+		free(conn.handles[slot]);
+		/* delete hashtable entry */
+		bucket = conn.handle_ht + h2;
+		int p;
+		for (p = 0; (p < bucket->items) && (bucket->bucket[p] != slot); p++) { /* nothing */ }
+		for (; p < bucket->size - 1; p++)
+			bucket->bucket[p] = bucket->bucket[p + 1];
+		bucket->items--;
+	}
+
+	/* install new entry */
+	conn.handles[slot] = xmalloc(len + 1);
+	strcpy(conn.handles[slot], newpath);
+	/* place into hashtable */
+	bucket = conn.handle_ht + hash;
+	if (bucket->items == bucket->size) {
+		if (bucket->size == 0) bucket->size = 32;
+		else bucket->size *= 2;
+		bucket->bucket = xrealloc(bucket->bucket, sizeof(uint16_t) * bucket->size);
+	}
+	bucket->bucket[bucket->items++] = slot;
+}
+
 /* gets handle from hashtable or assigns a new one */
 uint16_t get_handle (char const * path) {
 	struct reply reply;
@@ -93,34 +127,11 @@ uint16_t get_handle (char const * path) {
 
 	/* can we allocate more? */
 	int ch = conn.cur_handle;
-	if (conn.handles[ch]) {
-		/* we cannot. find first non-open handle. that should not take long */
-		while (conn.handles_open[ch])
-			ch = (ch + 1) % conn.max_handles;
-		/* destroy it */
-		conn.handles_open[ch] = 0;
-		unsigned long h2 = djb2(conn.handles[ch]) % HASH_MODULE;
-		free(conn.handles[ch]);
-		/* delete hashtable entry */
-		bucket = conn.handle_ht + h2;
-		int p;
-		for (p = 0; (p < bucket->items) && (bucket->bucket[p] != ch); p++) { /* nothing */ }
-		for (; p < bucket->size - 1; p++)
-			bucket->bucket[p] = bucket->bucket[p + 1];
-		bucket->items--;
-	}
+	/* find first non-open handle. that should not take long
+	 * if the slot is free, it will not be open */
+	while (conn.handles_open[ch]) ch = (ch + 1) % conn.max_handles;
+	replace_handle(ch, path, len);
 
-	/* install new entry */
-	conn.handles[ch] = xmalloc(len + 1);
-	strcpy(conn.handles[ch], path);
-	/* place into hashtable */
-	bucket = conn.handle_ht + hash;
-	if (bucket->items == bucket->size) {
-		if (bucket->size == 0) bucket->size = 32;
-		else bucket->size *= 2;
-		bucket->bucket = xrealloc(bucket->bucket, sizeof(uint16_t) * bucket->size);
-	}
-	bucket->bucket[bucket->items++] = ch;
 	conn.cur_handle = (ch + 1) % conn.max_handles;
 
 	/* assign on server */
@@ -169,6 +180,7 @@ int newtp_result_to_errno (int result)
 	if (result < 0x80) return 0;
 	switch(result) {
 		case ERR_DENIED:   return -EACCES;
+		case ERR_BUSY:     return -EBUSY;
 		case ERR_BADPATH:
 		case ERR_NOTFOUND: return -ENOENT;
 		case ERR_NOTDIR:   return -ENOTDIR;
@@ -177,6 +189,7 @@ int newtp_result_to_errno (int result)
 		case ERR_BADOFFSET:return -EINVAL;
 		case ERR_TOOBIG:   return -EFBIG;
 		case ERR_DEVFULL:  return -ENOSPC;
+		case ERR_NOTEMPTY: return -ENOTEMPTY;
 		default:           return -EIO;
 	}
 }
@@ -372,6 +385,34 @@ int newtp_truncate (char const * path, off_t offset)
 	return newtp_result_to_errno(reply.result);
 }
 
+int newtp_unlink (char const * path)
+{
+	struct reply reply;
+	int handle = get_handle(path);
+	reply_for_command(0, CMD_DELETE, handle, 0, &reply);
+	return newtp_result_to_errno(reply.result);
+}
+
+int newtp_mkdir (char const * path, mode_t mode)
+{
+	struct reply reply;
+	int handle = get_handle(path);
+	(void) mode; /* modes not supported, as we well know */
+	reply_for_command(0, CMD_MAKEDIR, handle, 0, &reply);
+	return newtp_result_to_errno(reply.result);
+}
+
+int newtp_rename (char const * path, char const * newpath)
+{
+	struct reply reply;
+	int handle = get_handle(path);
+	int len = strlen(newpath);
+	strcpy(data_out, newpath);
+	reply_for_command(0, CMD_RENAME, handle, len, &reply);
+	MAYBE_RET;
+	replace_handle(handle, newpath, len);
+	return 0;
+}
 
 
 static struct fuse_operations newtp_oper = {
@@ -385,6 +426,10 @@ static struct fuse_operations newtp_oper = {
 	.write      = newtp_write,
 	.release    = newtp_release,
 	.truncate   = newtp_truncate,
+	.unlink     = newtp_unlink,
+	.rmdir      = newtp_unlink,
+	.mkdir      = newtp_mkdir,
+	.rename     = newtp_rename,
 };
 
 /*

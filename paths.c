@@ -101,50 +101,69 @@ void delhandle (struct handle * handle)
 	free(handle);
 }
 
-int handle_assign (uint16_t handle, char const * buf, int len)
+int check_path (char const * buf, int len)
 {
-#define SLASH 1
-#define DOT1 2
-#define DOT2 3
-#define OTHER 0
-	int state = SLASH;
-	char const * c;
+	enum {SLASH, DOT1, DOT2, OTHER} state = SLASH;
 	int pos = 0;
-	int shlen = -1; /* share len */
-
-	if (handle >= MAXHANDLES) return ERR_BADHANDLE;
 
 	if (len == 0) {
-		/* do nothing */
+		return 1;
 	} else if (len == 1 && *buf == '/') { /* "/", forbid */
-		return ERR_BADPATH;
+		return 0;
 	} else if (*buf != '/') { /* missing leading slash, forbid */
-		return ERR_BADPATH;
+		return 0;
 	} else { /* skip leading slash */;
-		++buf; --len;
+		++buf; pos = 1;
 	}
 
-	c = buf;
 	while (pos < len) {
-		if (!*c) return ERR_BADPATH;
-		if (state == SLASH && *c == '/') return ERR_BADPATH;
-		if (*c == '/' && shlen == -1) shlen = c - buf;
-
-		if (state == DOT1 && *c == '/') return ERR_BADPATH;
-		if (state == DOT2 && *c == '/') return ERR_BADPATH;
-		if (*c == '/') state = SLASH;
-		else if (state == SLASH && *c == '.') state = DOT1;
-		else if (state == DOT1 && *c == '.') state = DOT2;
+		if (!*buf) return 0;
+		if (state == SLASH && *buf == '/') return 0;
+		if (state == DOT1 && *buf == '/') return 0;
+		if (state == DOT2 && *buf == '/') return 0;
+		if (*buf == '/') state = SLASH;
+		else if (state == SLASH && *buf == '.') state = DOT1;
+		else if (state == DOT1 && *buf == '.') state = DOT2;
 		else state = OTHER;
 
-		++pos; ++c;
+		++pos; ++buf;
 	}
-	if (state == DOT1 || state == DOT2) return ERR_BADPATH;
-	if (shlen == -1) shlen = len;
-	/* path is OK, proceed */
+	if (state == DOT1 || state == DOT2) return 0;
 
+	return 1;
+}
+
+int handle_assign (uint16_t handle, char const * buf, int len)
+{
+	struct handle * h;
+	if (handle >= MAXHANDLES) return ERR_BADHANDLE;
+	h = handle_make(buf, len);
+	if (!h) return ERR_BADPATH;
+	return handle_assign_ptr(handle, h);
+}
+
+int handle_assign_ptr (uint16_t handle, struct handle * h)
+{
+	if (handle >= MAXHANDLES) return ERR_BADHANDLE;
 	if (handles[handle]) delhandle(handles[handle]);
-	handles[handle] = NULL; /* just to be sure */
+	handles[handle] = h;
+
+	logp("handle %d is now \"%s\"", handle, h->name);
+	return STAT_OK;
+}
+
+struct handle * handle_make (char const * buf, int len)
+{
+	int shlen = 0;
+	if (!check_path(buf, len)) return NULL;
+	assert(len != 1);
+	if (len > 1) {
+		/* leading slash */
+		++buf;
+		--len;
+	}
+
+	while (buf[shlen] != '/' && shlen < len) shlen++;
 
 	struct handle * h = xmalloc(sizeof(struct handle));
 
@@ -154,26 +173,32 @@ int handle_assign (uint16_t handle, char const * buf, int len)
 	h->pathlen = len - shlen;
 
 	h->fd = -1;
+	handle_fill_path(h);
 
-	handles[handle] = h;
-	logp("handle %d is now \"%s\"", handle, h->name);
-	return STAT_OK;
+	return h;
 }
 
 struct handle * handle_get (uint16_t handle)
 {
 	if (handle >= MAXHANDLES) return NULL;
-	struct handle * h = handles[handle];
-	if (h == NULL) return NULL;
+/*	struct handle * h = handles[handle];
+	if (h == NULL) return NULL;*/
+	return handles[handle];
+}
+
+void handle_fill_path (struct handle * h)
+{
+	if (h->path) return;
 
 	if (!h->name[0]) { /* root - special case */
 		h->path = "";
 		h->writable = 0;
-		return h;
+		return;
 	}
 
 	/* XXX all the following assumes that shares can change at any time.
-	TODO remains to put in some concurrency checks */
+	 * That might be useful in the future.
+	 * TODO remains to put in some concurrency checks */
 
 	/* do we know a share? */
 	if (!h->share || h->sharelen != h->share->nlen || strncmp(h->name, h->share->name, h->sharelen)) {
@@ -182,7 +207,7 @@ struct handle * handle_get (uint16_t handle)
 			free(h->path);
 			h->path = NULL;
 			h->writable = 0;
-			return h;
+			return;
 		}
 	}
 	/* ok, how about the path */
@@ -205,5 +230,5 @@ struct handle * handle_get (uint16_t handle)
 	} /* else we are working with share's root */
 	
 	h->writable = h->share->writable;
-	return h;
+	return;
 }

@@ -13,6 +13,7 @@
 
 #include <gnutls/gnutls.h>
 
+#include "clientops.h"
 #include "commands.h"
 #include "common.h"
 #include "log.h"
@@ -21,9 +22,6 @@
 
 #define MYPORT "63987"
 /* NEWTP on a phone */
-
-char * inbuf;
-char * outbuf;
 
 void send_empty_command(int id, int command, int handle)
 {
@@ -186,7 +184,7 @@ void do_get (char * path, char * target, int overwrite)
 		rid = reply.request_id;
 		if (reply.result != STAT_OK) {
 			/* bail */
-			fprintf(stderr, "read failed: %x\n", reply.result);
+			fprintf(stderr, "read failed: 0x%x\n", reply.result);
 			exit(1);
 		}
 		if (reply.length > 0) {
@@ -215,19 +213,10 @@ void do_get (char * path, char * target, int overwrite)
 	}
 }
 
-void do_put (char * local, char * remote)
-{
-}
-
 int main (int argc, char **argv)
 {
-	struct addrinfo hints;
-	struct addrinfo *res;
 	struct intro intro;
-	struct reply reply;
 	char * command, * path, * target;
-	int sock;
-	uint16_t version;
 
 	if (argc < 3) {
 		printf("usage: %s <address> <command> [path]\n", argv[0]);
@@ -238,53 +227,7 @@ int main (int argc, char **argv)
 	if (argc > 3) path = argv[3];
 	else path = "";
 
-	memset(&hints, 0, sizeof(hints));
-	hints.ai_family = AF_UNSPEC;
-	hints.ai_socktype = SOCK_STREAM;
-
-	if (getaddrinfo(argv[1], MYPORT, &hints, &res)) {
-		puts("error resolving address");
-		return 1;
-	}
-	sock = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-	if (connect(sock, res->ai_addr, res->ai_addrlen)) {
-		printf("failed to connect: %s\n", strerror(errno));
-		return 2;
-	}
-
-	inbuf = xmalloc(MAX_LENGTH * 2);
-	outbuf = xmalloc(MAX_LENGTH * 2);
-
-	newtp_gnutls_init(sock, GNUTLS_CLIENT);
-
-	/* perform protocol intro */
-	pack(outbuf, "5Bs", "NewTP", (uint16_t)1);
-	pack_command_p(outbuf + 7, 0xffff, EXT_INIT, INIT_WELCOME, 0, 0);
-	safe_send_full(outbuf, 7 + SIZEOF_command());
-	safe_recv_full(inbuf, 7 + SIZEOF_reply());
-	if (strncmp(inbuf, "NewTP", 5)) {
-		newtp_gnutls_disconnect(1);
-		fprintf(stderr, "server sent invalid intro string, closing connetion\n");
-		return 3;
-	}
-	unpack(inbuf + 5, 2, "s", &version);
-	assert(version == 1);
-	unpack_reply(inbuf + 7, SIZEOF_reply(), &reply);
-
-	assert(reply.length > 0);
-	safe_recv_full(inbuf, reply.length);
-	if (unpack_intro(inbuf, reply.length, &intro) < 0) {
-		fprintf(stderr, "server intro packet too short\n");
-		newtp_gnutls_disconnect(1);
-		return 3;
-	}
-	assert(reply.request_id == 0xffff);
-	assert(reply.extension == EXT_INIT && reply.result == R_OK);
-
-	fprintf(stderr, "server version %d, max %d handles, max %d dirs, platform %s\n", version, intro.max_handles, intro.max_opendirs, intro.platform);
-	free(intro.platform);
-	free(intro.authstr);
-
+	if (newtp_client_connect(argv[1], MYPORT, &intro, NULL) > 0) return 1;
 
 	/*** perform actual commands ***/
 
@@ -293,16 +236,8 @@ int main (int argc, char **argv)
 	} else if (!strcmp("get", command)) {
 		char * c = path;
 		target = path;
-		while (*c++) if (*c == '/') target = c + 1;
+		while (*c++) if (*c == '/') target = c + 1; /* get basename */
 		do_get(path, target, 0);
-	} else if (!strcmp("put", command)) {
-		if (argc < 5) {
-			printf("usage: %s %s put <file> [file...] <path>\n", argv[0], argv[1]);
-			return 1;
-		}
-		for (int i = 3; i < argc - 1; i++) {
-			do_put(argv[i], argv[argc-1]);
-		}
 	} else {
 		fprintf(stderr, "unknown command: %s\n", command);
 		exit(1);

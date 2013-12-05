@@ -38,16 +38,30 @@ struct handle {
 /* initialize handles and return maxhandles */
 int handle_init ();
 
+/* makes a handle object from buf/len.
+ * returns NULL if the path is bad. */
+struct handle * handle_make (char const * buf, int len);
+
 /* try to assign the path from buf/len into handle.
 return STAT_OK on success, or appropriate
 ERR_* error code. */
 int handle_assign (uint16_t handle, char const * buf, int len);
+
+/* assign valid handleptr to handle id */
+int handle_assign_ptr (uint16_t handle, struct handle * h);
 
 /* check whether the given handle is within range and assigned.
 update handle path in handle->path and return pointer to handle
 or return NULL if the handle is bad. */
 struct handle * handle_get (uint16_t handle);
 
+/* check whether path is acceptable */
+int check_path (char const * buf, int len);
+
+/* build handle path based on current share config */
+void handle_fill_path (struct handle * h);
+
+#define MAXHANDLES 16384
 
 int share_add (char const * name, char const * path, int writable);
 /*void share_del (char const * name); maybe later */

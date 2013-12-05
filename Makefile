@@ -12,7 +12,7 @@ CC = gcc
 
 COMMON = common.o struct_helpers.o tools.o
 SRVOBJS = server.o operations.o paths.o $(COMMON)
-CLIOBJS = client.o $(COMMON)
+CLIOBJS = client.o clientops.o $(COMMON)
 FSOBJS  = newfs.o clientops.o $(COMMON)
 
 OBJS = $(SRVOBJS) $(CLIOBJS) $(FSOBJS)
@@ -40,4 +40,4 @@ newfs:  $(FSOBJS)
 
 clean:
 	rm -f $(OBJS) \
-	rm -f server client struct_helpers.* *.d
+	rm -f server client newfs struct_helpers.* *.d

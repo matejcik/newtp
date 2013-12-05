@@ -558,9 +558,9 @@ int cmd_WRITE (struct command * cmd, char * payload, char * response)
 		if (err == -1) {
 			if (errno == EINTR) continue;
 			if (errno == EIO) err = ERR_IO;
-			else if (errno == ENOSPC) err = ERR_DEVFULL;
+			else if (errno == ENOSPC || errno == EDQUOT) err = ERR_DEVFULL;
+			else if (errno == EFBIG) err = ERR_TOOBIG;
 			else err = ERR_FAIL;
-			/* where is TOOBIG? TODO */
 			return REPLY(err, sizeof(uint16_t));
 		} else {
 			payload += err;
@@ -625,7 +625,6 @@ int cmd_DELETE (struct command * cmd, char * payload, char * response)
 		else if (errno == EROFS) err = ERR_DENIED;
 		else if (errno == ENOTEMPTY) err = ERR_NOTEMPTY;
 		else err = ERR_FAIL;
-		break;
 	}
 	return REPLY(err, 0);
 }
@@ -635,11 +634,60 @@ int cmd_RENAME (struct command * cmd, char * payload, char * response)
 	struct handle * h, * nh;
 	int res, err = STAT_OK;
 	VALIDATE_HANDLE(h);
-	logp("CMD_DELETE %d (%s)", cmd->handle, h->path);
+	logp("CMD_RENAME %d (%s)", cmd->handle, h->path);
 	if (!h->writable) return REPLY(ERR_DENIED, 0);
+
+	nh = handle_make(payload, cmd->length);
+	if (!nh) return ERR_BADPATH;
+	else if (!nh->path) {
+		/* TODO too intimate knowledge of handle internals */
+		free(nh->name);
+		free(nh);
+		return ERR_NOTFOUND;
+		/* TODO ERR_DENIED for moving to root */
+	}
+
+	res = rename(h->path, nh->path);
+	if (res == -1) {
+		if (errno == EACCES || errno == EPERM) err = ERR_DENIED;
+		else if (errno == EBUSY) err = ERR_BUSY;
+		else if (errno == EDQUOT) err = ERR_DENIED;
+		else if (errno == EINVAL) err = ERR_BADMOVE;
+		else if (errno == EISDIR) err = ERR_BADMOVE;
+		else if (errno == ELOOP) err = ERR_BADPATH;
+		else if (errno == ENAMETOOLONG) err = ERR_BADPATH;
+		else if (errno == ENOENT) err = ERR_BADMOVE;
+		else if (errno == ENOTDIR) err = ERR_BADMOVE;
+		else if (errno == ENOTEMPTY || errno == EEXIST) err = ERR_BADMOVE;
+		else if (errno == EIO) err = ERR_IO;
+		else if (errno == EROFS) err = ERR_DENIED;
+		else if (errno == EXDEV) err = ERR_CROSSDEV;
+		else err = ERR_FAIL;
+	} else {
+		handle_assign_ptr(cmd->handle, nh);
+	}
+	return REPLY(err, 0);
 }
 
 int cmd_MAKEDIR (struct command * cmd, char * payload, char * response)
 {
-	return -1;
+	struct handle * h;
+	int res, err = STAT_OK;
+	VALIDATE_HANDLE(h);
+	logp("CMD_MAKEDIR %d (%s)", cmd->handle, h->path);
+	if (!h->writable) return REPLY(ERR_DENIED, 0);
+	res = mkdir(h->path, 0777);
+	if (res == -1) {
+		if (errno == EACCES || errno == EPERM || errno == EROFS) err = ERR_DENIED;
+		else if (errno == EEXIST) err = ERR_EXISTS;
+		else if (errno == ELOOP) err = ERR_NOTFOUND;
+		else if (errno == ENAMETOOLONG) err = ERR_BADPATH;
+		else if (errno == ENOENT) err = ERR_NOTFOUND;
+		else if (errno == ENOSPC || errno == EDQUOT) err = ERR_DEVFULL;
+		else if (errno == ENOTDIR) err = ERR_NOTFOUND;
+		else if (errno == EBUSY) err = ERR_BUSY;
+		else if (errno == EIO) err = ERR_IO;
+		else err = ERR_FAIL;
+	}
+	return REPLY(err, 0);
 }
