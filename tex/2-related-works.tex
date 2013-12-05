@@ -111,18 +111,55 @@ a separate protocol outside its environment.
 
 \section{NFS}
 
-Network File System 
+Originally called Sun Network Filesystem, NFS was introduced in a paper~\cite{nfs85} in 1985. It was later
+standardized as Network File System version 2 in RFC~1094~\cite{rfc1094}, and version 3 was released in 1995
+as RFC~1813~\cite{rfc1813}. NFS can run over UDP and version 3 adds support for TCP transport layer. The
+protocol itself is fully stateless, in order to improve concurrency and provide cleaner failure recovery.
 
-TODO
+NFS protocol is a neat example of modularity and technology reuse. It is defined in terms of
+Sun~RPC~\cite{rfc1057} calls, the format of which is in turn specified in the XDR~\cite{rfc1832}
+language.\footnote{The final on-the-wire format is binary.} The core protocol only deals with filesystem
+operations, and the specification describes related protocols that provide lock management and stateful
+filesystem mounting procedures. Although not formally specified in the protocol, implementations usually
+contain a replay cache module~\cite{juszczak89} that reduces server load and shields the stateless server from
+the non-idempotent replay problem. NFS relies on Sun~RPC security mechanisms for authentication, and version
+3 does not support encryption.
+
+NFS version 3 is now superseded by version 4. Its specification documents are still relevant, however, as they
+provide great insight into file transfer protocol design and challenges.
+
+\subsection{NFSv4}
+
+Version 4 of the Network File System protocol was introduced in December 2000. The most up-to-date
+specification is RFC~5661~\cite{rfc5661} from 2010, describing version 4.1. Version 4.2 is in active
+development.
+
+NFSv4 is the first version of NFS developed by the Internet Engineering Task Force, after Sun Microsystems
+ceded formal control of the specification to the Internet Society.~\cite{rfc2339} It brings major changes to
+the protocol, introducing stateful operation and mandating strong security. Other areas of improvement include
+performance, esp. on high-latency networks and the Internet, internationalization, interoperability with
+non-POSIX operating systems, etc. Version 4.1 introduces Parallel NFS extension and other features designed to
+support server clusters.
+
+All the new features significantly increase complexity of the protocol -- for a rough measure, with over 600
+pages, RFC~5661 is more than five times longer than the version 3 specification. This is obviously not
+a problem in itself, but it does mean that understanding, implementing and maintaining correctness of NFSv4
+software is a much more difficult task. Also, similar to SMB, the complexity makes it less suitable for
+simpler file transfer tasks.
 
 \section{SFTP}
 
-TODO
+SSH File Transfer Protocol, or SFTP, started out as a proprietary extension to the SSH~2.0~\cite{rfc4251}
+protocol suite around the year 1997. The first standard draft was introduced in 2001, and standardization
+attempts continued unsuccessfully for several years. Development was stopped and the working group closed
+in~2006.~\cite{secsh-email} The most recent draft specificaton is from July 2006~\cite{draft-secsh-13}.
+Despite the fact that SFTP is not a recognized Internet standard, it is widely implemented in SSH-related
+software.
 
-\section{rsync}
+SFTP is a binary protocol with a clearly modern design. It has a small core feature set of filesystem-like
+operations, but also includes support for extended attributes, ACLs, and byte-range locks.  The protocol
+design allows for both stateful and stateless server implementations, but there is no form of replay
+protection.
 
-jenom v krátkosti zmínit že to existuje a že to je specializovaný
-
-\section{Others}
-
-this section mentions that the list here is by no means exhaustive
+Provisions for authentication and encryption are not part of the protocol, SFTP fully relies on the SSH
+transport layer to provide these features.
