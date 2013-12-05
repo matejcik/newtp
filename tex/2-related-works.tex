@@ -159,7 +159,8 @@ software.
 SFTP is a binary protocol with a clearly modern design. It has a small core feature set of filesystem-like
 operations, but also includes support for extended attributes, ACLs, and byte-range locks.  The protocol
 design allows for both stateful and stateless server implementations, but there is no form of replay
-protection.
+protection. Some consideration is given to cross-platform interoperability, but on the whole, the
+functionality remains largely POSIX-centric.
 
 Provisions for authentication and encryption are not part of the protocol, SFTP fully relies on the SSH
 transport layer to provide these features.

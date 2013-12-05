@@ -201,11 +201,16 @@ application, a client should periodically check freshness of relevant data.  For
 should check cache freshness every time a file is opened, and perform server write when the file is closed.
 In addition, it is advisable to refresh directory cache at reasonable intervals, e.g., once a minute.
 
-We considered adding a mechanism through which the server could request cache invalidation. However, since all
-traffic is initiated by the client, server has no means to send unsolicited updates. In our communication
-scheme, the client would have to send an update request and the server would only respond to this request when
-updates became available. For this to work properly with interleaving, the server must be allowed to reorder
-client request, which is a topic for a future revision.
+In order for the server to take part in client cache management, the protocol would need a mechanism to send
+unsolicited updates to clients. We considered adding such mechanism -- this ability might be useful beyond
+cache management, e.g., to signal upcoming server shutdown. However adding unsolicited updates would break the
+simplicity of client-initiated-traffic model. Therefore, we decided to leave it out of this version.
+
+A possible solution for a future revision is to allow the server to reorder client requests. Clients that are
+interested in server updates would then send a special command at start of session, and the server would
+respond to this command later, when updates became available.\footnote{This technique is known as {\it long
+polling} and is widely used in Web applications, because the HTTP protocol also lacks the capability to send
+unsolicited updates.}
 
 %
 
@@ -651,7 +656,7 @@ SASL\_RESPONSE} and a {\tt data} payload with contents of the response.
 \begin{center}
 
 \def\tline#1#2{ {\ttfamily #1} & {\ttfamily #2} }
-\begin{tabular}{|cll|}
+\begin{tabular}{cll}
 	\hline
 	Code & Symbolic name & Description \\
 	\hline
@@ -700,8 +705,6 @@ SASL\_RESPONSE} and a {\tt data} payload with contents of the response.
 	\tline{0xFD}{E\_UNSUPPORTED} & Feature or argument unsupported \\
 	\tline{0xFE}{E\_FAIL} & Generic command failure \\
 	\tline{0xFF}{E\_SERVFAIL} & Internal server error \\
-
-	\hline
 \end{tabular}
 
 \end{center}
@@ -711,7 +714,7 @@ SASL\_RESPONSE} and a {\tt data} payload with contents of the response.
 
 %%
 
-\section{List of commands}
+\section{Core commands}
 
 This section describes each command from the core set (extension code {\tt 0x00}), its arguments, reply format
 and possible result codes.  Table \ref{table:results} describes all core result codes. Codes below {\tt 0x80}
@@ -1018,30 +1021,41 @@ lost and subsequent reads will return {\tt E\_READDIR}.
 
 %%
 
-\section{Example session}
-
-really??
-
-%%
-
 \section{Extensions}
 
-this section describes the concept of the extension mechanism and lists some extensions
-
-\subsection{Asynchronous operations}
-
-Commands to fire off an operation (equivalent of some commands, plus on-server copy, recursive delete,
-cross-filesystem move etc.) on a handle, command to monitor progress (depends on the command, by default
-"none/in progress/finished"), command to abort.
-
-\subsection{Extended attributes}
-
-Commands to read and set extended attributes.
+This might go away and each extension will become a separate section, so that i can show commands as
+subsections.
 
 \subsection{Links}
 
-Separate extensions for hardlinks and softlinks? Each with one command: link this path to this new name.
+TODO
+
+This extension allows creation of symlinks and hard links. It implements three commands: make symlink, make
+hardlink, lstat. It adds a new attribute code: type-or-symlink, which copies ATTR\_TYPE but shows symlinks.
+
+\subsection{Asynchronous operations}
+
+TODO
+
+This extension copies all core commands, and introduces COPY. Also, RENAME can move cross-filesystem, and
+DELETE can (when specified) delete recursively The scheme is the same for all of them: instead
+of actual result, it starts a long-running operation and returns operation-started. Another command, PROGRESS, on
+the same file handle, can query status of this operation, and reports the progress, and if the operation is
+finished. The operation RESULT will return NOTFINISHED, or the actual result of the operation.
+The operation ABORT will abort an operation in progress.
+
+You must not run other operations on the handle. If you reassign the handle, the long-running operation is
+silently aborted. This can have unexpected results, such as half-copied directory structure.
+
+\subsection{Extended attributes}
+
+TODO
+
+Commands: LISTXATTR, GETXATTR, SETXATTR, REMOVEXATTR. New attribute showing number of extended attributes on a file.
 
 \subsection{Replay}
 
-Remember results of certain operations in the main process and replay them to whoever asks.
+Command: SESSION  - gives back a 64bit session token, and a size of buffer
+Command: REPLAY(token) - returns *only headers* for last N non-idempotent operations under this token. Kills other session,
+reassociates with the token.
+the operations affected are: RENAME, DELETE, MAKEDIR (others?)

@@ -1,13 +1,128 @@
-% vim: tw=110:fo=an1lt
+% vim: tw=110:fo=n1lt
 
 \chapter{Implementation}
 
-In this chapter we describe the reference server and client software that we implemented.
+As a proof of concept, we have implemented a NewTP server and two client applications. This served to evaluate
+soundness of the design ideas, test out protocol features, and prove that the specification does not place
+unnecessary complications on the implementation. This means that the provided implementation is purposefully
+simplistic. In many cases, we opted for straightforward but inefficient approaches in place of more involved
+techniques that would improve performance or robustness.
+
+Please keep in mind that this is only a proof-of-concept implementation and it is not intended for production
+use. The software is architected with further development in mind, but it should be considered a mere
+foundation for a more efficient and reliable implementation.
+
+We developed the software for the Linux operating system. It consists of three executable programs built from
+a common code base. The {\tt server} program is the NewTP server and the {\tt newfs} program implements the
+FUSE filesystem module. Lastly, {\tt client} is a very simple command-line tool for downloading files through
+NewTP.
+
+\section{Common functionality}
+
+Certain operations are required both for client and server implementations. All three programs share the
+headers that define command, result and attribute codes, and headers with definitions of {\tt structs} that
+correspond to NewTP packet formats and arguments. The shared functionality, apart from utility functions,
+consists of the following:
+\begin{itemize}[nolistsep]
+	\item Packing and unpacking data, specified by a format string, to and from buffers
+	\item Auto-generated helper functions that can pack and unpack the corresponding {\tt structs}
+		directly
+	\item Helper functions to set up and tear down a TLS session
+	\item Helper functions to send and receive data from the network
+	\item Wrapper functions for these helpers that cleanly close the connection and exit the program
+		when a network error occurs
+\end{itemize}
 
 \section{Server}
 
-TODO
+The server program allows the user to specify directories to export through NewTP as ``shares'', and choose
+which of them should be read-only and which of them are writable. It also provides a choice between anonymous
+and password-based authentication.
 
-\section{Client}
+The server is implemented in a traditional forking model. The main process binds to ports on all available
+interfaces and listens for incoming connections. When a client connects, the main process spawns a child
+process to handle the incoming connection, and resumes listening.
 
-TODO
+The child process first establishes the TLS encryption, processes NewTP session initialization and SASL
+authentication, and enters an endless command-serving loop. In each iteration, the process blocks on reading
+from the network until it has enough data to decode an incoming request header. After that, it retrieves the
+request payload, stores it in a buffer, which is then handed over to the appropriate command procedure. This
+procedure decodes request arguments if required, performs the command and places its results into an output
+buffer.  When the command procedure returns, contents of the output buffer are sent as a reply to the client.
+
+Core commands are implemented in a separate source file and do not perform any network communication -- that
+is the sole responsibility of the main server code. This enforces the notion that commands should not have
+``private conversations'' with the client. The only data shared between command invocations is placed in file
+handle structures. This is used to retain open directory descriptors between {\tt READDIR} operations, and
+perform the basic optimization of keeping file descriptors open between read and write operations.
+
+File handle assignment is performed by another separate code file, so that its functionality can be easily
+exposed to extensions. This code is responsible for resolving the share-based virtual paths to actual
+filesystem paths on the server. There are some provisions for the ability to dynamically add or remove
+shares at run-time, but this functionality is not implemented. At the moment, the coupling between the file
+handle module and the core command module is still relatively tight. This should be rectified in
+future versions.
+
+Command procedures share the same basic structure, although it is more complicated esp. in cases where there
+are more system calls in sequence ({\tt WRITE}) or more complicated processing is required on the result data
+({\tt READDIR}).
+\begin{enumerate}[nolistsep]
+	\item Obtain the file handle
+	\item Perform a system call
+	\item Resolve error code to the appropriate NewTP result code
+	\item Store results in output buffer
+\end{enumerate}
+
+\section{Filesystem module}
+
+As the primary NewTP client, we implemented a module for the Linux FUSE filesystem. It connects to a server
+and exposes its contents through the Linux virtual file system interface, so that it is accessible for all
+programs.
+
+The FUSE filesystem was extremely helpful to development of the protocol, because it represents a convenient
+user interface to individual filesystem operations. Once the basic {\tt STAT} and {\tt REWINDDIR}/{\tt
+READDIR} operations were in place, we could use the UNIX command-line tools to test every feature of the
+protocol separately. Furthermore, running more complicated actions within the filesystem (such as rebuilding
+the executables from source) allowed us to stress-test the implementation and easily discover missing
+functionality.
+
+The FUSE library itself was also very useful in implementing the module. It performs a great deal of error
+checking, replaces unimplemented operations with stubs, and ensures that arguments passed to the client
+program are well-formed and within acceptable ranges. Combined with the common functionality, this lets us
+implement most operations in 5 to 10 lines of C, and keep everything in a single source file. In fact, by far
+the most complicated part of the code is a primitive hash-table implementation for file handle lookup.
+
+Every operation procedure receives a path string and arguments for that particular operation. From this, the
+procedure performs the following steps:
+\begin{enumerate}[nolistsep]
+	\item Look up or assign a file handle for this path string
+	\item Build an appropriate NewTP command with arguments
+	\item Send over the network
+	\item Block until reply arrives
+	\item Resolve NewTP result code to appropriate error code
+	\item Return results of the operation
+\end{enumerate}
+
+FUSE modules can run in one of two modes: single-threaded, where operations are serialized, and
+multi-threaded, where more than operation can run at once. To properly use the multi-threading capability, we
+would have to maintain a background service thread that would handle all network communications, and marshal
+requests and replies. This is an obvious direction for improving performance, but it would needlessly
+complicate the proof-of-concept implementation. Therefore, the {\tt newfs} program runs in single-threaded
+mode.
+
+This is obviously a huge performance hit. Combined with the fact that there is no caching, it means that every
+filesystem operation waits for a network round-trip before allowing a different filesystem operation to
+proceed. When running over the local loopback interface, the response time is acceptable for day-to-day file
+operations, but it is not suited for much more than that.
+
+** this paragraph shortly talks about the greatness of background marshal threads **
+
+\section{Downloader client}
+
+was used throughout the development as a scratch pad for
+implementation practices. It can connect to the server, display directory listing in a format similar to the
+``ls'' tool, and download files with batch read commands.
+
+** here we describe that thing about batching read commands, and that it shows that the speed can be improved,
+although it's still not on par with more mature software **
+

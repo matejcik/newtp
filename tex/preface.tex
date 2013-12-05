@@ -2,7 +2,7 @@
 \addcontentsline{toc}{chapter}{Introduction}
 
 Today, in the age of ubiquituous networking, it is as important as ever to be able to share files between
-devices. We have smart cameras and phones, home fileservers and shared document storages etc., and we want to
+devices. Users own smart cameras and phones, home fileservers and shared document storages etc., and want to
 work with data stored on these devices. Moreover, one of the basic requirements of cloud computing, which is
 rising in popularity and importance, is the ability of clients to efficiently and securely access their data
 that reside on remote servers.
@@ -16,19 +16,26 @@ that, for instance, actual low-level security and resilience to attacks remains 
 attention is paid to cross-application and cross-platform interoperability.
 
 We decided to examine one of the lower levels in the protocol hierarchy -- basic filesystem-like access to
-files and directory structures. We know from user experience that existing solutions, while sufficient, are
+files and directory structures. We know from experience that existing solutions, while sufficient, are
 far from perfect in real-world conditions. Interoperability between different implementations is less than ideal,
 and some protocols are better able to cope with degradation in network environment (packet loss, high latency)
 than others.
 
 We decided to design a new, modern file transfer protocol, in an attempt to examine possible solutions to
-various problems and challenges. We hope to find out how tradeoffs in the design affect different application
+various problems and challenges. We hoped to find out how tradeoffs in the design affect different application
 scenarios, how much protocol efficiency depends on usage by applications and how features of a protocol relate
-to its vulnerability to attacks. This could allow us to come up with a protocol that is better suited for some
+to its vulnerability to attacks. This allowed us to come up with a protocol that is better suited for some
 use cases than the protocols available today.
 
 The results of this work are three-fold. First and foremost, it is the protocol design, along with reference
 implementations for server and client. Second, the thesis describes in detail the various properties of a file
-sharing protocol, available design choices and tradeoffs, and how design process works from the ground up.
-This will be useful for people designing a protocol best suited for some particular use case. And thirdly, we
-present a summary evaluation of relevant characteristics of protocols that are widely in use today.
+sharing protocol, available design choices and tradeoffs.  This will be useful for people designing a protocol
+best suited for some particular use case. And thirdly, we present a summary evaluation of relevant
+characteristics of protocols that are widely in use today.
+
+The work is divided into four chapters. In chapter 1, we define and explain terms and concepts used throughout
+the work. This chapter also examines common issues related to file access protocols, and outlines the various
+possible solutions. Chapter 2 presents an overview of popular existing protocols, their properties and
+features. Chapter 3 is a specification of the protocol that we designed. It also explains the logic behind our
+design decisions, and how these decisions relate to usage scenarios. Finally, chapter 4 describes the software
+that we developed in order to test viability of the new protocol.
