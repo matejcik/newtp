@@ -100,8 +100,9 @@ Faculty of Mathematics and Physics
 \vspace{15mm}
 
 % Název práce přesně podle zadání
-{\LARGE\bfseries File sharing protocol}
-% {\LARGE\bfseries A file sharing protocol}
+%{\LARGE\bfseries File sharing protocol}
+%{\LARGE\bfseries A file sharing protocol}
+{\LARGE\bfseries Protokol pro sdílení souborů}
 
 \vfill
 
@@ -138,9 +139,13 @@ Prague 2013
 \openright
 
 \noindent
-Dedication.
-%{\bd Acknowledgement}
-I would like to thank my advisor, Mgr. Martin Mareš, Ph.D., TODO
+%Dedication.
+{\bf Acknowledgements}\\
+I would like to thank my supervisor, Mgr. Martin Mareš, Ph.D., for his help and support
+with writing this work, and especially for his patience and immeasurable tolerance for my
+irregular working schedule.\\
+Secondly, I want to thank my friends Andy and Klára. This work would not exist without
+their support and encouragement.
 
 \newpage
 
@@ -194,11 +199,10 @@ Abstrakt:
 % abstrakt v rozsahu 80-200 slov; nejedná se však o opis zadání bakalářské práce
 Dnešní síťová výpočetní prostředí silně spoléhají na možnost efektivně přesouvat data mezi počítači. Abychom
 porozuměli problémům a úlohám týkajícím se sdílení souborů a publikování adresářových stromů v počítačové
-síti, rozhodli jsme se detailněji studovat oblast protokolů pro přenos souborů a síťových souborových systémů.
-Prozkoumali a shrnuli jsme vlastnosti několika populárních protokolů. Vybaveni těmito informacemi, vytvořili
-jsme NewTP, moderní protokol pro sdílení souborů, vhodný pro použití v Internetu. Zvláštní důraz byl kladen na
-jednoduchost implementace a odolnost proti útokům. Prokázali jsme reálnou použitelnost protokolu tím, že jsme
-naimplementovali referenční server a modul souborového systému FUSE.
+síti, prozkoumali a shrnuli jsme vlastnosti několika populárních protokolů. S použitím získaných znalostí jsme
+vytvořili NewTP, moderní protokol pro sdílení souborů, vhodný pro použití v Internetu. Zvláštní důraz byl
+kladen na jednoduchost implementace a odolnost proti útokům. Prokázali jsme reálnou použitelnost protokolu
+tím, že jsme naimplementovali referenční server a modul souborového systému FUSE.
 
 Klíčová slova:
 přenos souborů, síťový souborový systém, síťový protokol
@@ -209,7 +213,7 @@ přenos souborů, síťový souborový systém, síťový protokol
 \setlength\parskip{5mm}
 
 Title:
-File sharing protocol
+A file sharing protocol
 % přesný překlad názvu práce v angličtině
 
 Author:
@@ -226,12 +230,11 @@ Mgr. Martin Mareš, Ph.D., Department of Applied Mathematics
 
 Abstract:
 % abstrakt v rozsahu 80-200 slov v angličtině; nejedná se však o překlad zadání bakalářské práce
-Today's networked computing environments rely heavily on the ability to efficiently transfer data
-between computers. In order to understand the issues and challenges involved in sharing files and publishing
-directory trees over a computer network, we decided to study the field of file transfer and filesystem
-protocols in detail. We examined and summarized features of a number of popular protocols. Using this
-knowledge, we designed NewTP, a modern file sharing protocol suitable for the Internet. Special emphasis was
-placed on simplicity of implementation and resistance to attacks. We have proven the protocol's real-world
+Today's networked computing environments rely heavily on the ability to efficiently transfer data between
+computers. In order to understand the issues and challenges involved in sharing files and publishing directory
+trees over a computer network, we examined and summarized features of a number of popular protocols. Using
+this knowledge, we designed NewTP, a modern file sharing protocol suitable for the Internet. Special emphasis
+was placed on simplicity of implementation and resistance to attacks. We have proven the protocol's real-world
 viability by implementing a reference server and a FUSE filesystem module.
 
 Keywords:
@@ -272,6 +275,9 @@ file transfer, network filesystem, network protocol
 %%% diagramy apod.). Každá příloha musí být alespoň jednou odkazována z vlastního
 %%% textu práce. Přílohy se číslují.
 \chapwithtoc{Attachments}
+\appendix
+\include{attA}
+\include{attB}
 
 \openright
 \end{document}

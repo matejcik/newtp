@@ -30,7 +30,7 @@ intended meaning should be clear from context. Where ambiguous, the terms ``file
 type'' will be used in order to distinguish between the concepts.
 
 We want to be able to publish one or more subtrees of the filesystem on one computer, and access this part of
-the structure from another computer over a network.
+the structure from another computer over a~network.
 
 
 \section{Protocols}
@@ -96,7 +96,7 @@ the binary messages to understandable text.
 A data format can be considered self-describing if it carries enough information to reconstruct the data
 without pre-existing knowledge of its structure. A protocol designer might use this property to describe
 protocol messages in an abstract notation, such as ASN.1~\cite{asn-basic}, instead of specifying details of
-on-the-wire encoding. Implementers can then use a software library that converts data between an abstract
+on-the-wire encoding. Implementers can then use a software library that converts data between an~abstract
 representation and a self-describing format, itself either textual or binary.
 
 One advantage of this approach is that it simplifies both protocol specifications and implementations by
@@ -115,7 +115,7 @@ the complexity, it is difficult to maintain correctness of parser implementation
 attack surface and a popular target for malicious actors. For example, after more than 20 years of
 development, new ASN.1-related vulnerabilities still regularly pop up in popular software. At the time of this
 writing, the CVE database recognizes 58 vulnerabilities related to ASN.1, registered in years 2002 through
-2013.~\cite{asn-vuln}
+2013~\cite{asn-vuln}.
 
 \subsection{Roles}
 
@@ -176,7 +176,7 @@ and then transcode filenames in client and server software.
 
 Newer filesystems enforce that a filename is a valid Unicode string, but on many widely used filesystems,
 filename can be an arbitrary string of bytes.\footnote{Unless the byte represents a forbidden character --
-forward-slash or null byte on UNIX, shell expansion characters on Windows and similar.} In effect,
+forward-slash or null byte on UNIX, shell expansion characters on Windows and similar.} In~effect,
 a filesystem can store names that cannot be properly decoded in the system's character set. This presents
 a problem for the transcoding process.  An obvious solution is to ignore invalid filenames, but that is
 arguably not very useful. It is seemingly better to use replacement characters for the undecodable sequences,
@@ -197,12 +197,12 @@ a file transfer protocol. Client will request a file and server will respond by 
 file's contents. Failure modes are obvious: the identifier does not point to a file; file exists but cannot be
 read; or this client does not have permission to access the file.
 
-In basic form of download, the server will send full contents of the file as a continuous stream, possibly
+In basic form of download, the server will send full contents of the file as a~continuous stream, possibly
 preceded by length of the stream. However, it is often more useful to specify a range for reading. This allows
 resuming of interrupted downloads, seeking in media streams and the like. It is also very useful if the client
 wants to implement filesystem-like behavior over the protocol.
 
-A general-purpose protocol will treat files as opaque streams. However, in a specialized protocol, it might be
+A general-purpose protocol will treat files as opaque streams. However, in a~specialized protocol, it might be
 useful to understand structure of the file. This allows the client to perform more abstract operations --
 e.g., query contents of the file as a database, download only thumbnail or embedded metadata etc.
 
@@ -312,7 +312,7 @@ authentication mechanisms directly, other rely on the transport layer to provide
 
 From the other side, it is often useful to enable public unauthenticated access. A good way to accomplish this
 is to make authentication optional. This might be difficult to do when authentication comes from the transport
-layer, which might or might not support unauthenticated channels. Another way is to establish a convention
+layer, which might or might not support unauthenticated channels. Another way is to establish a~convention
 that a certain username (such as ``anonymous'' or ``guest'') does not require credentials, but depending on
 the specifics of the authentication scheme, this might be hard too.
 

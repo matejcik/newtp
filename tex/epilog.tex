@@ -11,12 +11,13 @@ high-latency networks.
 
 We have proven that the design is viable by implementing and testing a server and a virtual filesystem backed
 by the proposed protocol. The prototype allowed us to show that the protocol has all the features needed to
-reliably function as a filesystem. This make it possible to integrate it into an operating system.
+reliably function as a filesystem. This makes it possible to integrate it into an operating system.
 
 In our future work, we would like to focus on improving performance of the implementations, to the point where
 they are usable for practical purposes, and then observe how they perform in real-world scenarios. We have
-briefly outlined some possible performance improvements in Chapter~4.
+briefly outlined some possibilities for performance improvements in Chapter~4.
 
-There is also room for improvement in the protocol specification. Chapter~3 mentions a number of
-possible future advancements, including reordering of replies, notifications from the server, and a locking
-extension.
+The protocol specification can also be improved further. Chapter~3 mentions a number of possible future
+advancements, including reordering of replies and notifications from the server. Furthermore, many features
+could be added as extensions: locking, support for long-running operations, extended attributes, access
+control lists, etc.

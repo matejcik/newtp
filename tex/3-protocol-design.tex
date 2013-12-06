@@ -215,6 +215,7 @@ unsolicited updates.}
 %
 
 \subsection{Non-idempotent operations}
+\label{ssec:replay}
 
 Since native locking is not part of the protocol, we make an attempt to minimize problems with directory-based
 locking and mitigate potential issues with non-idempotent operations. To this end, we have designed
@@ -295,7 +296,7 @@ multiple byte sequences map to the same Unicode codepoint. These are not support
 Paths and files in NewTP are referred to through identifiers called {\it file handles}. The purpose of this is
 to reduce transfer sizes and simplify packet structure. In order to eliminate a round-trip on file handle
 assignment, clients choose their own file handles.\footnote{This is a common technique for reducing latency;
-for instance, the X Window protocol does the same with resource identifiers.~\cite{xwindow}} The {\tt ASSIGN}
+for instance, the X Window protocol does the same with resource identifiers~\cite{xwindow}.} The {\tt ASSIGN}
 command specifies a file handle and a path string. This relation is stored by the server, and subsequent
 commands use the file handle to represent this path string.
 
@@ -447,6 +448,8 @@ session initialization and SASL authentication messages. Neither can be used in 
 codes {\tt 0x01}--{\tt 0x30} are reserved for standard extensions. Standard extensions will be mentioned
 in~the~extension list if they are present, but their code is fixed and guaranteed to be the same on all
 implementations.  Server must not allocate extension codes in this range.
+
+Two standard extensions, {\tt links} and {\tt replay}, are specified in this work.
 
 Server sends the extension list as a sequence of fields in the following format:
 \beginpk
@@ -731,8 +734,6 @@ connection after sending these codes. Continuing communication after receiving {
 Result code {\tt E\_UNSUPPORTED} indicates that the implementation understands the request, but refuses to
 service it. This code can only be returned in situations where behavior is implementation-defined.
 
-\clearpage
-
 \subsection{ASSIGN}
 
 \begin{description}[noitemsep,topsep=1pt]
@@ -763,7 +764,7 @@ order specified by the {\tt attributes} argument. Each attribute may appear only
 
 
 \begin{description}[noitemsep,topsep=1pt]
-	\item[Result data:] {\it depends on arguments}
+	\item[Result data:] {\tt data attribute\_values}
 	\item[Specific errors:] \hfill \\
 		\begin{tabular}{lp{10.5cm}}
 			{\tt E\_BADATTR} &
@@ -932,8 +933,6 @@ overwritten.
 
 If the operation succeeds, the file handle is updated with the new path.
 
-Result data: none
-
 \begin{description}[noitemsep,topsep=1pt]
 	\item[Result data:] none
 	\item[Specific errors:] \hfill \\
@@ -1027,35 +1026,191 @@ lost and subsequent reads will return {\tt E\_READDIR}.
 {\bf Name:} {\tt links} \\
 {\bf Extension code:} {\tt 0x01 EXT\_LINKS}
 
-This extension provides commands for manipulating symbolic links and hard links. When present, a new
-attribute is added 
+This extension provides commands for manipulating symbolic links and hard links. It specifies the following
+new attribute:
 
-This extension allows creation of symlinks and hard links. It implements three commands: make symlink, make
-hardlink, lstat. It adds a new attribute code: type-or-symlink, which copies ATTR\_TYPE but shows symlinks.
+\begin{tabular}{llp{7cm}}
+	\pkfield{0x40}{byte type\_with\_link}{Same as {\tt type}, but its value can be {\tt 0x03} to indicate
+	symbolic link}
+\end{tabular}
 
-\subsection{Asynchronous operations}
+The extension also specifies two error codes:
 
-TODO
+\begin{tabular}{lll}
+	\pkfield{0x80}{LINKS\_E\_OUTSIDE}{Symbolic link points outside of published root}
+	\pkfield{0x81}{LINKS\_E\_NOTLINK}{Not a symbolic link}
+\end{tabular}
 
-This extension copies all core commands, and introduces COPY. Also, RENAME can move cross-filesystem, and
-DELETE can (when specified) delete recursively The scheme is the same for all of them: instead
-of actual result, it starts a long-running operation and returns operation-started. Another command, PROGRESS, on
-the same file handle, can query status of this operation, and reports the progress, and if the operation is
-finished. The operation RESULT will return NOTFINISHED, or the actual result of the operation.
-The operation ABORT will abort an operation in progress.
+\subsection{MAKE\_LINK} %%%%%%%%%%%%
 
-You must not run other operations on the handle. If you reassign the handle, the long-running operation is
-silently aborted. This can have unexpected results, such as half-copied directory structure.
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Code:] {\tt 0x00}
+	\item[Arguments:] {\tt data newpath}
+\end{description}
 
-\subsection{Extended attributes}
+Creates a new file at {\tt newpath} a hardlink to the file handle. File handle must refer to a file. {\tt
+newpath} must not exist, and the directory containing it must be on the same filesystem as the file handle.
 
-TODO
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Result data:] none
+	\item[Specific errors:] \hfill \\
+		\begin{tabular}{lp{10.5cm}}
+			{\tt E\_BADPATH} & File handle path or the new path is not acceptable \\
+			{\tt E\_EXISTS} & {\tt newpath} points to an existing object \\
+			{\tt E\_CROSSDEV} & {\tt newpath} is on a different filesystem \\
+		\end{tabular}
+\end{description}
 
-Commands: LISTXATTR, GETXATTR, SETXATTR, REMOVEXATTR. New attribute showing number of extended attributes on a file.
+\subsection{LSTAT} %%%%%%%%%%%%
 
-\subsection{Replay}
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Code:] {\tt 0x01}
+	\item[Arguments:] {\tt data attributes}
+\end{description}
 
-Command: SESSION  - gives back a 64bit session token, and a size of buffer
-Command: REPLAY(token) - returns *only headers* for last N non-idempotent operations under this token. Kills other session,
-reassociates with the token.
-the operations affected are: RENAME, DELETE, MAKEDIR (others?)
+Same as {\tt STAT}, except that if the file handle points to a symbolic link, queries the symbolic link entry
+instead of the object it points to.
+
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Result data:] {\tt data attribute\_values}
+	\item[Specific errors:] \hfill \\
+		\begin{tabular}{lp{10.5cm}}
+			{\tt E\_BADATTR} & Attribute code from the list is unknown or not supported
+				on the platform, or an attribute is listed more than once \\
+		\end{tabular}
+\end{description}
+
+\subsection{MAKE\_SYMLINK} %%%%%%%%%%%%%%
+
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Code:] {\tt 0x02}
+	\item[Arguments:] {\tt data symlink}
+\end{description}
+
+Creates a new symbolic link at the file handle, pointing to {\tt symlink}. {\tt symlink} may be an absolute
+path, which is interpreted by the server as relative to exported root. It may also be a relative path, in
+which case it is interpreted literally, but it must not escape the exported root at any point during its
+resolution (i.e., ``{\tt ../backToRoot/something}'' is not allowed). The file handle must not point to an
+existing object.
+
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Result data:] none
+	\item[Specific errors:] \hfill \\
+		\begin{tabular}{lp{9cm}}
+			{\tt E\_BADPATH} & File handle path or content of {\tt symlink} is not an acceptable
+				path \\
+			{\tt LINKS\_E\_OUTSIDE} & {\tt symlink} is a relative path and points outside of
+				exported root \\
+			{\tt E\_EXISTS} & File handle points to an existing object \\
+		\end{tabular}
+\end{description}
+
+\subsection{READLINK} %%%%%%%%%%%%%%
+
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Code:] {\tt 0x03}
+	\item[Arguments:] none
+\end{description}
+
+Returns value of symbolic link, i.e., the path that it points to. If the link points outside the exported
+root, {\tt LINKS\_E\_OUTSIDE} is returned. If the link is absolute, the value is returned as an absolute path
+from the filesystem root. If the link is relative, the value is returned literally.
+
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Result data:] {data link\_value}
+	\item[Specific errors:] \hfill \\
+		\begin{tabular}{lp{10.5cm}}
+			{\tt LINKS\_E\_OUTSIDE} & Link points outside the exported root \\
+			{\tt LINKS\_E\_NOTLINK} & File handle does not refer to a symbolic link \\
+		\end{tabular}
+\end{description}
+
+%%%%%%
+
+\section{Replay extension}
+
+{\bf Name:} {\tt replay} \\
+{\bf Extension code:} {\tt 0x02 EXT\_REPLAY}
+
+The principle behind this extension was explained in section~\ref{ssec:replay}. To restate, a client registers
+with the server and receives a unique token. If a network error occurs, the client can reconnect and use the
+token to request a replay of last operations accepted by the server.
+
+The replay cache stores reply headers (without payloads) from non-idempotent requests. For the core set, this
+means the following commands:
+\begin{itemize}[nolistsep]
+	\item {\tt SETATTR}
+	\item {\tt TRUNCATE}
+	\item {\tt DELETE}
+	\item {\tt RENAME}
+	\item {\tt MAKEDIR}
+\end{itemize}
+Extensions can add their own non-idempotent commands to the list. {\tt WRITE} is explicitly excluded, as it is
+a frequently repeated operation, and simply copying a huge file to the server could effectively overwrite the
+whole replay cache.
+
+Size of the replay cache is implementation-defined, but it must hold at least 10~items. It is recommended that the
+server saves the replay cache on a permanent storage, so that it can be used even in case of server crash.
+
+Malicious actors could abuse this feature by creating and killing a huge number of connections in rapid
+succession, and thus filling server memory or storage space by replay caches. To prevent this, the server
+should place a limit on total size of all replay caches. When this limit is reached, the server may delete
+replay caches for disconnected sessions, oldest first. The server should also delete old replay caches
+periodically. A replay cache is considered old when its associated session has been dead for over
+10 minutes.
+
+Before replaying a session, the server must check that the supplied token belongs to the same user account.
+This obviously does not apply to anonymous mode -- all anonymous clients are considered to belong to the same
+account.
+
+The extension does not define any attributes. It defines the following special error code:
+
+\begin{tabular}{lll}
+	\pkfield{0x80}{REPLAY\_E\_BADTOKEN}{Invalid session token}
+\end{tabular}
+
+%%
+
+\subsection{SESSION}
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Code:] {\tt 0x00}
+	\item[Arguments:] none
+\end{description}
+
+Assigns a random identifier to the session, and starts recording non-idempotent commands. If called
+repeatedly, returns the same identifier.
+
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Result data:] \hfill \\
+		\begin{tabular}{lll}
+			\pkfield{uint16}{cache\_size}{Size of the replay cache}
+			\pkfield{uint64}{token}{Unique token for the session}
+		\end{tabular}
+	\item[Specific errors:] none
+\end{description}
+
+%%
+
+\subsection{REPLAY}
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Code:] {\tt 0x01}
+	\item[Arguments:] {\tt uint64 token}
+\end{description}
+
+Connects this session to the supplied token. If a different live session is associated with the token, kills
+that session.  Returns contents of the replay cache for this token, and resumes recording.
+
+If the session token is unknown, or the referenced session does not belong to this user account, does nothing
+and returns {\tt REPLAY\_E\_BADTOKEN}.
+
+\begin{description}[noitemsep,topsep=1pt]
+	\item[Result data:] \hfill \\
+		\begin{tabular}{lll}
+			\pkfield{uint16}{num\_items}{Number of operations in the replay cache}
+			\pkfield{data}{items}{Sequence of reply packet headers}
+		\end{tabular}
+	\item[Specific errors:] \hfill \\
+		\begin{tabular}{lp{10.5cm}}
+			{\tt REPLAY\_E\_BADTOKEN} & Invalid session token \\
+		\end{tabular}
+\end{description}

@@ -4,13 +4,16 @@
 
 As a proof of the proposed concept, we have implemented a NewTP server and two client applications. This
 served to evaluate soundness of the design ideas, test out protocol features, and prove that the specification
-does not place unnecessary complications on the implementation. This means that the provided implementation is
-purposefully simplistic. In many cases, we opted for straightforward but inefficient approaches in place of
-more involved techniques that would improve performance or robustness.
+does not place unnecessary complications on the implementation. This chapter gives a brief overview of the
+software, describes how it is implemented, and proposes directions for future improvements.
 
+The provided implementation is purposefully simplistic. In many cases, we opted for straightforward but
+inefficient approaches in place of more involved techniques that would improve performance or robustness.
 Please keep in mind that this is purely a prototype and it is not intended for production use. The software is
 architected with further development in mind, but it should be considered a mere foundation for a more
 efficient and reliable implementation.
+
+The prototype only implements the core command set, not the extensions.
 
 The software that we have developed runs on the Linux operating system. It consists of three executable
 programs built from a common code base. The {\tt server} program is the NewTP server and the {\tt newfs}
