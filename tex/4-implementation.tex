@@ -2,29 +2,30 @@
 
 \chapter{Implementation}
 
-As a proof of concept, we have implemented a NewTP server and two client applications. This served to evaluate
-soundness of the design ideas, test out protocol features, and prove that the specification does not place
-unnecessary complications on the implementation. This means that the provided implementation is purposefully
-simplistic. In many cases, we opted for straightforward but inefficient approaches in place of more involved
-techniques that would improve performance or robustness.
+As a proof of the proposed concept, we have implemented a NewTP server and two client applications. This
+served to evaluate soundness of the design ideas, test out protocol features, and prove that the specification
+does not place unnecessary complications on the implementation. This means that the provided implementation is
+purposefully simplistic. In many cases, we opted for straightforward but inefficient approaches in place of
+more involved techniques that would improve performance or robustness.
 
-Please keep in mind that this is purely a proof-of-concept implementation and it is not intended for production
-use. The software is architected with further development in mind, but it should be considered a mere
-foundation for a more efficient and reliable implementation.
+Please keep in mind that this is purely a prototype and it is not intended for production use. The software is
+architected with further development in mind, but it should be considered a mere foundation for a more
+efficient and reliable implementation.
 
-We developed the software for the Linux operating system. It consists of three executable programs built from
-a common code base. The {\tt server} program is the NewTP server and the {\tt newfs} program implements the
-FUSE filesystem module. Lastly, {\tt client} is a simple command-line tool for downloading individual files.
+The software that we have developed runs on the Linux operating system. It consists of three executable
+programs built from a common code base. The {\tt server} program is the NewTP server and the {\tt newfs}
+program implements the FUSE filesystem module. Lastly, {\tt client} is a simple command-line tool for
+downloading individual files.
 
 \section{Common functionality}
 
 Certain operations are required both for client and server implementations. All three programs share the
-headers that define command, result and attribute codes, and headers with definitions of {\tt structs} that
+headers that define command, result and attribute codes, and headers with definitions of {\tt struct}s that
 correspond to NewTP packet formats and arguments. The shared functionality, apart from utility functions,
 consists of the following:
 \begin{itemize}[nolistsep]
 	\item Packing and unpacking data, specified by a format string, to and from buffers
-	\item Auto-generated helper functions that can pack and unpack the corresponding {\tt structs}
+	\item Auto-generated helper functions that can pack and unpack the corresponding {\tt struct}s
 		directly
 	\item Helper functions to set up and tear down a TLS session
 	\item Helper functions to send and receive data from the network
@@ -34,9 +35,9 @@ consists of the following:
 
 \section{Server}
 
-The server program allows the user to specify directories to export through NewTP as ``shares'', and choose
-which of them should be read-only and which of them are writable. It also provides a choice between anonymous
-and password-based authentication.
+The server program allows the user to specify directories to export through NewTP as ``shares'', that is, virtual
+entries in the published filesystem root. The user can choose which of them should be read-only and which are
+writable. It is also possible to enable password-based authentication.
 
 The server is implemented in a traditional forking model. The main process binds to ports on all available
 interfaces and listens for incoming connections. When a client connects, the main process spawns a child
@@ -57,14 +58,14 @@ perform the basic optimization of keeping file descriptors open between read and
 
 File handle assignment is performed by another separate code file, so that its functionality can be easily
 exposed to extensions. This code is responsible for resolving the share-based virtual paths to actual
-filesystem paths on the server. There are some provisions for the ability to dynamically add or remove
-shares at run-time, but this functionality is not implemented. At the moment, the coupling between the file
-handle module and the core command module is still relatively tight. This should be rectified in
+filesystem paths on the server. There are some provisions for the ability to dynamically add or remove shares
+at run-time, but this functionality is not implemented in the prototype. At the moment, the coupling between
+the file handle module and the core command module is still relatively tight. This should be rectified in
 future versions.
 
 Command procedures share the same basic structure, although it is more complicated esp. in cases where there
 are more system calls in sequence ({\tt WRITE}) or more complicated processing is required on the result data
-({\tt READDIR}).
+({\tt READDIR}). The general structure is as follows:
 \begin{enumerate}[nolistsep]
 	\item Obtain the file handle
 	\item Perform a system call
@@ -72,13 +73,13 @@ are more system calls in sequence ({\tt WRITE}) or more complicated processing i
 	\item Store results in output buffer
 \end{enumerate}
 
-\section{Filesystem module}
+\section{Filesystem module client}
 
-As the primary NewTP client, we implemented a module for the Linux FUSE filesystem. It connects to a server
-and exposes its contents through the Linux virtual file system interface, so that it is accessible for all
-programs.
+The primary client implementation of NewTP is a module for the Linux FUSE filesystem. It connects to a server
+and exposes its contents through the Linux virtual file system interface, so that all programs running on
+the system can access it transparently.
 
-The FUSE filesystem was extremely helpful to development of the protocol, because it represents a convenient
+The FUSE filesystem was extremely helpful when developing the protocol, because it represents a convenient
 user interface to individual filesystem operations. Once the basic {\tt STAT} and {\tt REWINDDIR}/{\tt
 READDIR} operations were in place, we could use the UNIX command-line tools to test every feature of the
 protocol separately. Furthermore, running more complicated actions within the filesystem (such as rebuilding
@@ -88,23 +89,23 @@ functionality.
 The FUSE library itself was also very useful in implementing the module. It performs a great deal of error
 checking, replaces unimplemented operations with stubs, and ensures that arguments passed to the client
 program are well-formed and within acceptable ranges. Combined with the common functionality, this lets us
-implement most operations in 5 to 10 lines of C, and keep everything in a single source file. In fact, by far
-the most complicated part of the code is a primitive hash-table implementation for file handle lookup.
+implement most operations in 5 to 10 lines of C code, and keep everything in a single source file. In fact, by
+far the most complicated part of the code is a primitive hash-table implementation for file handle lookup.
 
-Every operation procedure receives a path string and arguments for that particular operation. From this, the
+Every operation procedure receives a path string and arguments for that particular operation. With that, the
 procedure performs the following steps:
 \begin{enumerate}[nolistsep]
 	\item Look up or assign a file handle for this path string
 	\item Build an appropriate NewTP command with arguments
-	\item Send over the network
+	\item Send it over the network
 	\item Block until reply arrives
 	\item Resolve NewTP result code to appropriate error code
 	\item Return results of the operation
 \end{enumerate}
 
 FUSE modules can run in one of two modes: single-threaded, where operations are serialized, and
-multi-threaded, where more than operation can run at once. To properly use the multi-threading capability, we
-would have to maintain a background service thread to handle network communication and marshal requests and
+multi-threaded, where more than one operation can run at once. To properly use the multi-threading capability,
+we would have to maintain a background service thread to handle network communication and marshal requests and
 replies. This would needlessly complicate the proof-of-concept implementation. Therefore, the {\tt newfs}
 program runs in single-threaded mode.
 
@@ -127,8 +128,9 @@ in {\tt ls}-like format. If developed further, it could become a general-purpose
 in shell scripts.
 
 The implementation is very straightforward: the main procedure establishes a connection to the server, and
-launches the appropriate procedure based on command line arguments. The procedures don't follow any particular
-pattern. Each of them performs its task sequentially, prints results if appropriate, and exits the program.
+launches the appropriate procedure based on command line arguments. These procedures don't follow any
+particular pattern. Each of them performs its task sequentially, prints results if appropriate, and exits the
+program.
 
 As stated above, the filesystem client waits for results of every read operation before issuing a new one. We
 attempted to improve the performance of {\tt client} by sending read operations in batches. At start of the
@@ -136,6 +138,6 @@ session, it sends eight consecutive read requests before it starts waiting for r
 arrives, the program issues a new read request. This way, there should be outstanding requests and replies at
 all times, so the network bandwidth is better utilized.
 
-In informal testing, the batch approach increased performance over the naïve approach by a factor somewhere
-between 50 and 100. This proves that the concept has merit. However, when compared with a mature HTTP server,
-our NewTP implementations still leaves a lot to be desired.
+In informal testing, the batch approach increased performance over the naïve approach by a factor between 50
+and 100. This proves that the concept has merit. However, when compared with a mature HTTP server,
+our NewTP implementations still leave a lot to be desired.

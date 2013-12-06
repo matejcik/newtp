@@ -3,10 +3,20 @@
 \chapter*{Conclusion}
 \addcontentsline{toc}{chapter}{Conclusion}
 
-In conclusion, the results of this work are simply wonderful and will change the lives of everyone on the planet,
-end world hunger and bring peace and prosperity to mammals, birds and reptiles across the world.
+We have successfully designed a file sharing protocol with filesystem-like capabilities. The protocol fulfils
+some of its stated goals: it is easy to implement, communicates securely, and allows for operation
+interleaving.  It also has strong provisions for extensibility and cross-platform interoperability.  Further
+research is required to determine if the protocol exhibits the expected characteristics on unreliable and
+high-latency networks.
 
-\section*{Future work}
+We have proven that the design is viable by implementing and testing a server and a virtual filesystem backed
+by the proposed protocol. The prototype allowed us to show that the protocol has all the features needed to
+reliably function as a filesystem. This make it possible to integrate it into an operating system.
 
-We are considering building an extension that will also end wars and promote religious tolerance through smart use
-of named sockets.
+In our future work, we would like to focus on improving performance of the implementations, to the point where
+they are usable for practical purposes, and then observe how they perform in real-world scenarios. We have
+briefly outlined some possible performance improvements in Chapter~4.
+
+There is also room for improvement in the protocol specification. Chapter~3 mentions a number of
+possible future advancements, including reordering of replies, notifications from the server, and a locking
+extension.

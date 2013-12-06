@@ -1022,14 +1022,13 @@ lost and subsequent reads will return {\tt E\_READDIR}.
 
 %%
 
-\section{Extensions}
+\section{Links extension}
 
-This might go away and each extension will become a separate section, so that i can show commands as
-subsections.
+{\bf Name:} {\tt links} \\
+{\bf Extension code:} {\tt 0x01 EXT\_LINKS}
 
-\subsection{Links}
-
-TODO
+This extension provides commands for manipulating symbolic links and hard links. When present, a new
+attribute is added 
 
 This extension allows creation of symlinks and hard links. It implements three commands: make symlink, make
 hardlink, lstat. It adds a new attribute code: type-or-symlink, which copies ATTR\_TYPE but shows symlinks.
