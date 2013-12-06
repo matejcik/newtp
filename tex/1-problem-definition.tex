@@ -76,14 +76,14 @@ parsing and framing messages is more difficult.
 
 \subsubsection{Binary protocols}
 
-The alternative to text-based messages is using a format similar to in-memory encoding of data. Each message
+An alternative to text-based messages is using a format similar to in-memory encoding of data. Each message
 can be described by, and parsed as, a C struct.\footnote{This does not mean that you can create a message by
 dumping the memory representation of a corresponding C struct directly. On modern systems, fields of a struct
 will be memory-aligned and will contain some amount of padding. This can differ between systems, compilers,
 and can even depend on particular compiler flags.} This results in shorter messages and simpler encoding. If
 the in-memory encoding is the same as in the protocol, encoding and decoding can even be skipped completely.
-Parsing and framing is trivial -- every kind of message can either have a fixed number of fixed-size fields, or
-it can have a fixed-size part describing lengths of all variable-size fields.
+Parsing and framing is trivial -- every kind of message can either have a fixed number of fixed-size fields,
+or it can have a fixed-size part describing lengths of all variable-size fields.
 
 Care must be taken when communicating between systems that differ in endianness.  The protocol either has to
 prescribe the byte order, or it must provide means for the parties to negotiate.

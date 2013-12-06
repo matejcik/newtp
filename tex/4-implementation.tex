@@ -8,14 +8,13 @@ unnecessary complications on the implementation. This means that the provided im
 simplistic. In many cases, we opted for straightforward but inefficient approaches in place of more involved
 techniques that would improve performance or robustness.
 
-Please keep in mind that this is only a proof-of-concept implementation and it is not intended for production
+Please keep in mind that this is purely a proof-of-concept implementation and it is not intended for production
 use. The software is architected with further development in mind, but it should be considered a mere
 foundation for a more efficient and reliable implementation.
 
 We developed the software for the Linux operating system. It consists of three executable programs built from
 a common code base. The {\tt server} program is the NewTP server and the {\tt newfs} program implements the
-FUSE filesystem module. Lastly, {\tt client} is a very simple command-line tool for downloading files through
-NewTP.
+FUSE filesystem module. Lastly, {\tt client} is a simple command-line tool for downloading individual files.
 
 \section{Common functionality}
 
@@ -105,24 +104,38 @@ procedure performs the following steps:
 
 FUSE modules can run in one of two modes: single-threaded, where operations are serialized, and
 multi-threaded, where more than operation can run at once. To properly use the multi-threading capability, we
-would have to maintain a background service thread that would handle all network communications, and marshal
-requests and replies. This is an obvious direction for improving performance, but it would needlessly
-complicate the proof-of-concept implementation. Therefore, the {\tt newfs} program runs in single-threaded
-mode.
+would have to maintain a background service thread to handle network communication and marshal requests and
+replies. This would needlessly complicate the proof-of-concept implementation. Therefore, the {\tt newfs}
+program runs in single-threaded mode.
 
 This is obviously a huge performance hit. Combined with the fact that there is no caching, it means that every
 filesystem operation waits for a network round-trip before allowing a different filesystem operation to
 proceed. When running over the local loopback interface, the response time is acceptable for day-to-day file
 operations, but it is not suited for much more than that.
 
-** this paragraph shortly talks about the greatness of background marshal threads **
+The obvious direction for future improvements is multi-threaded operation. A marshal thread will be in charge
+of maintaining the connection to the server and recovering from network errors.  Individual operations will
+make blocking calls into this thread, it will send requests on their behalf and unblock the caller when the
+corresponding reply arrives. The marshal thread would also be in a perfect position to manage application-wide
+caches of files and directory entries, perform read-ahead requests, and respond to server notifications.
 
 \section{Downloader client}
 
-was used throughout the development as a scratch pad for
-implementation practices. It can connect to the server, display directory listing in a format similar to the
-``ls'' tool, and download files with batch read commands.
+The {\tt client} program's main purpose is downloading files faster than {\tt newfs}. It was developed as
+a scratch pad for implementation practices. Apart from downloading, it can also list directory contents
+in {\tt ls}-like format. If developed further, it could become a general-purpose tool for working with NewTP
+in shell scripts.
 
-** here we describe that thing about batching read commands, and that it shows that the speed can be improved,
-although it's still not on par with more mature software **
+The implementation is very straightforward: the main procedure establishes a connection to the server, and
+launches the appropriate procedure based on command line arguments. The procedures don't follow any particular
+pattern. Each of them performs its task sequentially, prints results if appropriate, and exits the program.
 
+As stated above, the filesystem client waits for results of every read operation before issuing a new one. We
+attempted to improve the performance of {\tt client} by sending read operations in batches. At start of the
+session, it sends eight consecutive read requests before it starts waiting for replies. Every time a reply
+arrives, the program issues a new read request. This way, there should be outstanding requests and replies at
+all times, so the network bandwidth is better utilized.
+
+In informal testing, the batch approach increased performance over the naïve approach by a factor somewhere
+between 50 and 100. This proves that the concept has merit. However, when compared with a mature HTTP server,
+our NewTP implementations still leaves a lot to be desired.
