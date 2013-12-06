@@ -3,6 +3,7 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/statvfs.h>
 #include <time.h>
 
 #include "clientops.h"
@@ -116,6 +117,7 @@ void replace_handle (uint16_t slot, char const * newpath, int len)
 /* gets handle from hashtable or assigns a new one */
 uint16_t get_handle (char const * path) {
 	struct reply reply;
+	if (strcmp(path, "/") == 0) path = "";
 	unsigned long hash = djb2(path) % HASH_MODULE;
 	int len = strlen(path);
 	hash_bucket * bucket;
@@ -222,7 +224,6 @@ int newtp_opendir (char const * path, struct fuse_file_info * fi)
 {
 	struct reply reply;
 	/* "/" is forbidden in NewTP */
-	if (strcmp(path, "/") == 0) path = "";
 
 	int handle = get_handle(path);
 	if (conn.opendirs > conn.intro.max_opendirs) /* reached max number of open dirs */
@@ -463,6 +464,22 @@ int newtp_chmod (char const * path, mode_t mode)
 }
 
 
+int newtp_statfs (char const * path, struct statvfs * st)
+{
+	struct reply reply;
+	struct statvfs_result r;
+	int handle = get_handle(path);
+	reply_for_command(0, CMD_STATVFS, handle, 0, &reply);
+	MAYBE_RET;
+	unpack_statvfs_result(data_in, reply.length, &r);
+	st->f_bsize = 1;
+	st->f_blocks = r.capacity;
+	st->f_bfree = st->f_bavail = r.free_space;
+	if (r.readonly) st->f_flag |= ST_RDONLY; /* although this field is ignored */
+	return 0;
+}
+
+
 static struct fuse_operations newtp_oper = {
 	.getattr    = newtp_getattr,
 	.opendir    = newtp_opendir,
@@ -481,6 +498,7 @@ static struct fuse_operations newtp_oper = {
 	.utimens    = newtp_utimens,
 	.chmod      = newtp_chmod,
 	.chown      = newtp_chown,
+	.statfs     = newtp_statfs,
 };
 
 /*

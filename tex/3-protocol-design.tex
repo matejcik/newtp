@@ -811,6 +811,7 @@ Queries filesystem information for the given path.
 			\pkfield{uint32}{device\_id}{Corresponds to the {\tt device\_id} attribute}
 			\pkfield{uint64}{capacity}{Total filesystem size}
 			\pkfield{uint64}{free\_space}{Free space available}
+			\pkfield{uint8}{readonly}{{\tt 0x00} for writable filesystem, {\tt 0x01} for read-only filesystem}
 		\end{tabular}
 	\item[Specific errors:] none
 \end{description}

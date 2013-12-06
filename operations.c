@@ -8,6 +8,7 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <unistd.h>
 
 #include "commands.h"
@@ -744,4 +745,36 @@ int cmd_MAKEDIR (struct command * cmd, char * payload, char * response)
 		else err = ERR_FAIL;
 	}
 	return REPLY(err, 0);
+}
+
+int cmd_STATVFS (struct command * cmd, char * payload, char * response)
+{
+	struct handle * h;
+	struct statvfs st;
+	struct statvfs_result r;
+	int res, err = STAT_OK;
+	VALIDATE_HANDLE(h);
+	logp("CMD_STATVFS %d (%s)", cmd->handle, h->path);
+
+	/* hack */
+	RETRY1(res, statvfs(/*h->path*/".", &st));
+	if (res == -1) {
+		if (errno == EACCES) err = ERR_DENIED;
+		else if (errno == ELOOP) err = ERR_NOTFOUND;
+		else if (errno == ENAMETOOLONG) err = ERR_BADPATH;
+		else if (errno == ENOENT) err = ERR_NOTFOUND;
+		else if (errno == ENOTDIR) err = ERR_NOTFOUND;
+		else if (errno == EIO) err = ERR_IO;
+		else err = ERR_FAIL;
+		return REPLY(err, 0);
+	}
+	
+	r.device_id  = st.f_fsid; /* possible bug: is this the same dev_id? */
+	r.capacity   = st.f_bsize * st.f_blocks;
+	r.free_space = st.f_bsize * st.f_bavail;
+	r.readonly   = (st.f_flag & ST_RDONLY) ? 1 : 0;
+	if (!h->writable) r.readonly = 1;
+
+	pack_statvfs_result(response + SIZEOF_reply(), &r);
+	return REPLY(STAT_OK, SIZEOF_statvfs_result(r));
 }

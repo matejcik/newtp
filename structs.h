@@ -69,6 +69,13 @@ struct dir_entry {
 	char *   attr;
 };
 
+struct statvfs_result {
+	uint32_t device_id;
+	uint64_t capacity;
+	uint64_t free_space;
+	uint8_t  readonly;
+};
+
 #include "struct_helpers.h"
 
 #endif
