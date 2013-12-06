@@ -31,13 +31,6 @@ void send_empty_command(int id, int command, int handle)
 	safe_send_full(outbuf, SIZEOF_command());
 }
 
-void recv_reply(struct reply * reply)
-{
-	safe_recv_full(inbuf, SIZEOF_reply());
-	unpack_reply(inbuf, SIZEOF_reply(), reply);
-	if (reply->length) safe_recv_full(inbuf + SIZEOF_reply(), reply->length);
-}
-
 #define ATTRIBUTES  "\x01\x06\x10\x02\x13"
 #define ATTR_LEN    strlen(ATTRIBUTES)
 #define ATTR_FORMAT "clcli"
@@ -215,82 +208,6 @@ void do_get (char * path, char * target, int overwrite)
 	}
 }
 
-int sasl_callback(Gsasl * ctx, Gsasl_session * session, Gsasl_property prop)
-{
-	static char * password = NULL;
-	switch (prop) {
-		case GSASL_ANONYMOUS_TOKEN:
-			gsasl_property_set(session, prop, "anonymous");
-			return GSASL_OK;
-		case GSASL_PASSCODE:
-		case GSASL_PASSWORD:
-		case GSASL_AUTHID:
-			if (!password) {
-				password = xmalloc(1000);
-				printf("Enter password: ");
-				fgets(password, 999, stdin);
-				/* delete newline */
-				password[strlen(password) - 1] = 0;
-			}
-			gsasl_property_set(session, prop, password);
-			return GSASL_OK;
-		case GSASL_SERVICE:
-			gsasl_property_set(session, prop, "newtp");
-			return GSASL_OK;
-		case GSASL_HOSTNAME:
-			gsasl_property_set(session, prop, "localhost");
-			return GSASL_OK;
-		default:
-			return GSASL_NO_CALLBACK;
-	}
-}
-
-void do_sasl_auth(Gsasl * ctx, struct intro * intro)
-{
-	Gsasl_session * session;
-	struct reply reply;
-	char const * mechanism = gsasl_client_suggest_mechanism(ctx, intro->authstr);
-	char * response;
-	size_t resp_size;
-	int ret;
-
-	if (mechanism) {
-		logp("using mechanism %s", mechanism);
-	} else {
-		err("failed to suggest mechanism");
-		exit(4);
-	}
-
-	gsasl_client_start(ctx, mechanism, &session);
-	pack_command_p(outbuf, 0, EXT_INIT, SASL_START, 0, strlen(mechanism));
-	strcpy(outbuf + SIZEOF_command(), mechanism);
-	safe_send_full(outbuf, SIZEOF_command() + strlen(mechanism));
-
-	while (1) {
-		recv_reply(&reply);
-		assert(reply.extension == EXT_INIT);
-		if (reply.result == SASL_R_CHALLENGE) {
-			ret = gsasl_step(session, inbuf + SIZEOF_reply(), reply.length, &response, &resp_size);
-			/* if we are done here, we still need to send empty(maybe?) response? */
-			if (ret != GSASL_OK && ret != GSASL_NEEDS_MORE) {
-				errp("SASL error %d: %s", ret, gsasl_strerror(ret));
-				exit(4);
-			}
-
-			pack_command_p(outbuf, 0, EXT_INIT, SASL_RESPONSE, 0, resp_size);
-			memcpy(outbuf + SIZEOF_command(), response, resp_size);
-			free(response);
-			safe_send_full(outbuf, SIZEOF_command() + resp_size);
-		} else break;
-	}
-
-	if (reply.result != SASL_R_SUCCESS && reply.result != SASL_R_SUCCESS_OPT) {
-		errp("authentication failed (0x%02x)", reply.result);
-		exit(4);
-	}
-	gsasl_finish(session);
-}
-
 int main (int argc, char **argv)
 {
 	struct intro intro;
@@ -299,7 +216,6 @@ int main (int argc, char **argv)
 
 	setlocale(LC_ALL, "");
 	assert(gsasl_init(&ctx) == GSASL_OK);
-	gsasl_callback_set(ctx, sasl_callback);
 
 	if (argc < 3) {
 		printf("usage: %s <address> <command> [path]\n", argv[0]);
@@ -311,7 +227,7 @@ int main (int argc, char **argv)
 	else path = "";
 
 	if (newtp_client_connect(argv[1], MYPORT, &intro, NULL) > 0) return 1;
-	do_sasl_auth(ctx, &intro);
+	newtp_client_sasl_auth(ctx, &intro);
 
 	/*** perform actual commands ***/
 

@@ -451,13 +451,13 @@ int cmd_SETATTR (struct command * cmd, char * payload, char * response)
 			DIE_OR(unpack(payload + 1, cmd->length - 1, "l", &uint64));
 			newtp_time_to_timespec(&ts[0], uint64);
 			ts[1].tv_nsec = UTIME_OMIT;
-			res = utimensat(0, h->path, ts, 0);
+			res = utimensat(AT_FDCWD, h->path, ts, 0);
 			break;
 		case ATTR_MTIME:
 			DIE_OR(unpack(payload + 1, cmd->length - 1, "l", &uint64));
 			newtp_time_to_timespec(&ts[1], uint64);
 			ts[0].tv_nsec = UTIME_OMIT;
-			res = utimensat(0, h->path, ts, 0);
+			res = utimensat(AT_FDCWD, h->path, ts, 0);
 			break;
 		case ATTR_PERMS:
 			DIE_OR(unpack(payload + 1, cmd->length - 1, "s", &uint16));

@@ -45,10 +45,13 @@ static struct fuse_operations newtp_oper;
 
 int main(int argc, char** argv) {
 	int ret;
+	Gsasl * ctx;
 	memset(&conn, 0, sizeof(conn));
 
 	/* connect */
 	if (newtp_client_connect("localhost", "63987", &conn.intro, NULL)) return 1;
+	gsasl_init(&ctx);
+	newtp_client_sasl_auth(ctx, &conn.intro);
 
 	/* initialize conn */
 	conn.max_handles = (MAX_HANDLES < conn.intro.max_handles) ? MAX_HANDLES : conn.intro.max_handles;
@@ -59,6 +62,7 @@ int main(int argc, char** argv) {
 	/* proceed */
 	ret = fuse_main(argc, argv, &newtp_oper, NULL);
 
+	gsasl_done(ctx);
 	newtp_gnutls_disconnect(1);
 	return ret;
 }
@@ -435,12 +439,13 @@ int newtp_chown (char const * path, uid_t uid, gid_t gid)
 {
 	struct reply reply;
 	int handle = get_handle(path);
-	if (uid > -1) {
+	logp("at chown: %d %d", uid, gid);
+	if (uid != (uid_t)-1) {
 		pack(data_out, "ci", (uint8_t)ATTR_UID, (uint32_t)uid);
 		reply_for_command(0, CMD_SETATTR, handle, 5, &reply);
 		MAYBE_RET;
 	}
-	if (gid > -1) {
+	if (gid != (gid_t)-1) {
 		pack(data_out, "ci", (uint8_t)ATTR_GID, (uint32_t)gid);
 		reply_for_command(0, CMD_SETATTR, handle, 5, &reply);
 		MAYBE_RET;
