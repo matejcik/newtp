@@ -20,9 +20,9 @@ remaining, naming the target entry.
 
 A {\it file} is usually taken to mean an opaque string of binary data. This was not always the case -- for
 instance, some historical systems treated files as structured collections of records. Several contemporary
-operating systems support the concept of ``forks'', which are separate data streams associated with a single
-filesystem object. This feature is rarely used in practice, mostly because of interoperability issues and poor
-end-user application support. We will be using the single-stream interpretation of the term.
+operating systems support the concept of ``forks'', which are multiple separate data streams associated with
+a single filesystem object. This feature is rarely used in practice, mostly because of interoperability issues
+and poor end-user application support. We will be using the single-stream interpretation of the term.
 
 Throughout this work, the word ``filesystem'' is used to denote both the hierarchy of directories and files,
 and a concrete implementation or format of this hierarchy, with particular features.  In most cases, the
@@ -68,7 +68,7 @@ or UTF-8. Many such protocols also use line separator characters to delimit mess
 this approach is that it is readable (and writable) by humans without specialized debugging tools -- for
 instance, it is possible to communicate with the other party by typing out commands, without software
 implementing the protocol.  Historically, there was also the fact that two communicating systems only had to
-agree on text encoding, and not about in-memory format of numbers or other data structures.
+agree on text encoding, and not on in-memory format of numbers or other data structures.
 
 Drawbacks include overhead of text encoding, both in terms of size and processing time spent encoding and
 decoding the textual representation. Another problem is that lengths of message fields are not fixed, so
