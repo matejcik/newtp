@@ -32,6 +32,8 @@ typedef struct {
 struct connection_info {
 	struct intro intro;
 
+	char * hostname;
+
 	char ** handles;
 	int * handles_open;
 	uint16_t max_handles;
@@ -44,13 +46,52 @@ struct connection_info {
 static struct connection_info conn;
 static struct fuse_operations newtp_oper;
 
+static struct fuse_opt newtp_opts[] = {
+	FUSE_OPT_KEY("--help", 1),
+	FUSE_OPT_KEY("-h", 1),
+	FUSE_OPT_KEY("--version", 2),
+	FUSE_OPT_KEY("-V", 2),
+	FUSE_OPT_END,
+};
+
+static int newtp_opt_proc (void * data, const char * arg, int key, struct fuse_args * outargs)
+{
+	switch(key) {
+		case 1: /* help */
+			fprintf(stderr, "usage: %s hostname mountpoint [options]\n\n", outargs->argv[0]);
+			fuse_opt_add_arg(outargs, "-ho");
+			fuse_main(outargs->argc, outargs->argv, &newtp_oper, NULL);
+			exit(1);
+		case 2: /* version */
+			fprintf(stderr, "newfs version 0.1\n");
+			fuse_opt_add_arg(outargs, "-V");
+			fuse_main(outargs->argc, outargs->argv, &newtp_oper, NULL);
+			exit(1);
+		case FUSE_OPT_KEY_NONOPT:
+			if (!conn.hostname) {
+				conn.hostname = strdup(arg);
+				return 0; /* eat the argument */
+			}
+	}
+	return 1; /* keep the argument */
+}
+
 int main(int argc, char** argv) {
 	int ret;
 	Gsasl * ctx;
 	memset(&conn, 0, sizeof(conn));
 
+	struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
+	fuse_opt_parse(&args, NULL, newtp_opts, newtp_opt_proc);
+	fuse_opt_add_arg(&args, "-s");
+
+	if (!conn.hostname) {
+		fprintf(stderr, "please specify hostname and mount point\n");
+		exit(1);
+	}
+
 	/* connect */
-	if (newtp_client_connect("localhost", "63987", &conn.intro, NULL)) return 1;
+	if (newtp_client_connect(conn.hostname, "63987", &conn.intro, NULL)) return 1;
 	gsasl_init(&ctx);
 	newtp_client_sasl_auth(ctx, &conn.intro);
 
@@ -61,7 +102,7 @@ int main(int argc, char** argv) {
 	conn.handle_ht = xmalloc(sizeof(hash_bucket) * HASH_MODULE);
 
 	/* proceed */
-	ret = fuse_main(argc, argv, &newtp_oper, NULL);
+	ret = fuse_main(args.argc, args.argv, &newtp_oper, NULL);
 
 	gsasl_done(ctx);
 	newtp_gnutls_disconnect(1);
@@ -440,7 +481,6 @@ int newtp_chown (char const * path, uid_t uid, gid_t gid)
 {
 	struct reply reply;
 	int handle = get_handle(path);
-	logp("at chown: %d %d", uid, gid);
 	if (uid != (uid_t)-1) {
 		pack(data_out, "ci", (uint8_t)ATTR_UID, (uint32_t)uid);
 		reply_for_command(0, CMD_SETATTR, handle, 5, &reply);
@@ -499,35 +539,14 @@ static struct fuse_operations newtp_oper = {
 	.chmod      = newtp_chmod,
 	.chown      = newtp_chown,
 	.statfs     = newtp_statfs,
-};
 
-/*
-static struct fuse_operations newtp_oper = {
-	.getattr    = newtp_getattr,
-	.fgetattr   = newtp_fgetattr,
-	.access     = newtp_access,
+/* remaining operations:
+	.access     = newtp_access, // would be implemented in getattr anyway
 	.readlink   = newtp_readlink,
-	.opendir    = newtp_opendir,
-	.readdir    = newtp_readdir,
-	.releasedir = newtp_releasedir,
-	.mkdir      = newtp_mkdir,
 	.symlink    = newtp_symlink,
-	.unlink     = newtp_unlink,
-	.rmdir      = newtp_rmdir,
-	.rename     = newtp_rename,
 	.link       = newtp_link,
-	.chmod      = newtp_chmod,
-	.chown      = newtp_chown,
-	.truncate   = newtp_truncate,
-	.ftruncate  = newtp_ftruncate,
-	.utimens    = newtp_utimens,
-	.create     = newtp_create,
-	.open       = newtp_open,
-	.read       = newtp_read,
-	.write      = newtp_write,
-	.statfs     = newtp_statfs,
-	.flush      = newtp_flush,
-	.release    = newtp_release,
-	.fsync      = newtp_fsync,
-};
+	.flush      = newtp_flush,  // no-op
+	.fsync      = newtp_fsync,  // no-op
 */
+
+};
