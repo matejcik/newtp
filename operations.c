@@ -750,14 +750,25 @@ int cmd_MAKEDIR (struct command * cmd, char * payload, char * response)
 int cmd_STATVFS (struct command * cmd, char * payload, char * response)
 {
 	struct handle * h;
+	struct share * sh;
+	char * path;
 	struct statvfs st;
 	struct statvfs_result r;
 	int res, err = STAT_OK;
 	VALIDATE_HANDLE(h);
 	logp("CMD_STATVFS %d (%s)", cmd->handle, h->path);
 
-	/* hack */
-	RETRY1(res, statvfs(/*h->path*/".", &st));
+	path = h->path;
+	/* special-case the root directory by statvfs'ing first share.
+	 * this helps the FUSE module do something useful, as it apparently
+	 * only calls statvfs on the root. */
+	if (!*path) {
+		sh = share_next(NULL);
+		assert(sh);
+		path = sh->path;
+	}
+
+	RETRY1(res, statvfs(path, &st));
 	if (res == -1) {
 		if (errno == EACCES) err = ERR_DENIED;
 		else if (errno == ELOOP) err = ERR_NOTFOUND;
