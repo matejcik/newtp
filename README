@@ -1,0 +1,76 @@
+NewTP version 0.1
+=================
+
+This is a short guide to compiling and using the NewTP
+prototype implementation.
+
+1. Requirements
+---------------
+
+The prototype is designed to run on the Linux operating
+system. Compatibility with other operating systems is not
+guaranteed.
+
+To compile and run the prototype, you must have the
+following software:
+
+ * a C compiler
+ * GNU-compatible Make program
+ * Python 3
+ * pkg-config
+ * GNU SASL Library (gsasl) version 1.6 or higher
+ * GnuTLS version 3.0 or higher
+ * FUSE version 2.6 or higher
+
+2. Compiling
+------------
+
+Follow these steps to compile the software:
+
+1. Extract the source tarball
+   $ tar xvjf newtp-0.1.tar.bz2
+2. Go into the directory
+   $ cd newtp-0.1
+3. Start build process
+   $ make
+
+3. Running
+----------
+
+3.1 server
+----------
+
+usage: ./server [-p password] <shares>
+
+If the -p argument is not given, server runs in anonymous mode.
+Shares can be specified as follows:
+
+ /path/to/share=name - this share is read-only
+ -ro /path/to/share=name - this is also read-only
+ -rw /path/to/share=name - this is read-write
+
+
+3.2 client
+----------
+
+usage: ./client <hostname> <command> [path]
+
+client can be invoked in one of three modes:
+
+ - list contents of root directory:
+   $ ./client <hostname> list
+ - list contents of path:
+   $ ./client <hostname> list /path/of/interest
+ - download a remote file:
+   $ ./client <hostname> get /path/to/fi.le
+
+
+3.3 newfs
+---------
+
+usage: ./newfs <hostname> <mountpoint>
+
+Mounts the filesystem exported on <hostname> onto the
+directory <mountpoint>. To unmount, use the command:
+
+fusermount -u <mountpoint>
