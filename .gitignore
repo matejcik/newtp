@@ -1,7 +1,6 @@
 *.swp
 *.o
 *.d
-struct_helpers.*
 server
 client
 newfs
