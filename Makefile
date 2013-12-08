@@ -45,4 +45,4 @@ newfs:  $(FSOBJS)
 
 clean:
 	rm -f $(OBJS) \
-	rm -f server client newfs struct_helpers.* *.d
+	rm -f server client newfs *.d
