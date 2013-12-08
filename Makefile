@@ -30,13 +30,13 @@ struct_helpers.h: structs.h make_struct_helpers.py
 struct_helpers.c: struct_helpers.h
 
 server:	$(SRVOBJS)
-	$(CC) $(CFLAGS) $(COMMON_LIBS) $^ -o $@
+	$(CC) -o $@ $(CFLAGS) $^ $(COMMON_LIBS)
 
 client: $(CLIOBJS)
-	$(CC) $(CFLAGS) $(COMMON_LIBS) $^ -o $@
+	$(CC) -o $@ $(CFLAGS) $^ $(COMMON_LIBS)
 
 newfs:  $(FSOBJS)
-	$(CC) $(CFLAGS) $(COMMON_LIBS) $(FUSE_LIBS) $^ -o $@
+	$(CC) -o $@ $(CFLAGS) $^ $(COMMON_LIBS) $(FUSE_LIBS)
 
 -include $(OBJS:.o=.d)
 
